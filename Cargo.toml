@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Karsten Jeschkies <jeskar@web.de>"]
 
 [dependencies]
+bytes = "0.4"
 futures = "0.1"
 hyper = "0.11"
 tokio-core = "0.1"

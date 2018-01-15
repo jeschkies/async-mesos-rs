@@ -1,22 +1,50 @@
+extern crate bytes;
+#[macro_use]
 extern crate futures;
 extern crate hyper;
 extern crate tokio_core;
 
 mod mesos {
 
+    use bytes::BytesMut;
+    use bytes::buf::BufMut;
     use hyper;
-    use futures::{Poll, Stream};
+    use futures::{Async, Poll, Stream};
+
+    use std::str;
 
     pub struct RecordIoConnection {
+        pub buf: BytesMut,
         pub body: hyper::Body,
     }
 
     impl Stream for RecordIoConnection {
-        type Item=hyper::Chunk;
+        type Item=String;
         type Error=hyper::error::Error;
 
         fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-            self.body.poll()
+            if let Some(chunk) = try_ready!(self.body.poll()) {
+                self.buf.put(chunk.as_ref());
+                // Parse line for now.
+                println!("New line?");
+                if let Some(i) = self.buf.iter().position(|&b| b == b'\n') {
+                    println!("...yes");
+                    let line = self.buf.split_to(i);
+                    match str::from_utf8(&line) {
+                        Ok(s) => {
+                            return Ok(Async::Ready(Some(s.to_string())))
+                        },
+                        Err(e) => {
+                            println!("got error");
+                            return Err(hyper::Error::Utf8(e))
+                        },
+                    };
+                } else {
+                    println!("...no");
+                    return Ok(Async::NotReady)
+                }
+            }
+            Ok(Async::NotReady)
         }
     }
 }
@@ -24,7 +52,7 @@ mod mesos {
 #[cfg(test)]
 mod tests {
 
-    use std::io::{self, Write};
+    use bytes::BytesMut;
 
     use futures::{Future, Stream};
 	use hyper::Client;
@@ -40,13 +68,14 @@ mod tests {
 
 		let uri = "http://httpbin.org/ip".parse::<Uri>().unwrap();
 		let work = client.get(uri).map(|res| {
-			println!("Response: {}", res.status());
-            mesos::RecordIoConnection { body: res.body() }
+			println!("Response status: {}", res.status());
+            mesos::RecordIoConnection { buf: BytesMut::with_capacity(4096), body: res.body() }
 		});
 
         let s: mesos::RecordIoConnection = core.run(work).unwrap();
-        let w = s.for_each(|chunk| {
-            io::stdout().write_all(&chunk).map_err(From::from)
+        let w = s.for_each(|line: String| {
+            println!("{}", line);
+            Ok(())
         });
 
         core.run(w).unwrap();
