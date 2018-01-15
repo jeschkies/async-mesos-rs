@@ -18,31 +18,54 @@ mod mesos {
         pub body: hyper::Body,
     }
 
+    impl RecordIoConnection {
+        fn next_line(&mut self) -> Option<String> {
+            // Parse line for now.
+            if let Some(i) = self.buf.iter().position(|&b| b == b'\n') {
+                let line = self.buf.split_to(i);
+                self.buf.split_to(1);
+
+                match str::from_utf8(&line) {
+                    Ok(s) => return Some(s.to_string()),
+                    Err(e) => {
+                        println!("got error");
+                        return None
+                    },
+                };
+            }
+            None
+        }
+    }
+
     impl Stream for RecordIoConnection {
         type Item=String;
         type Error=hyper::error::Error;
 
         fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-            if let Some(chunk) = try_ready!(self.body.poll()) {
-                self.buf.put(chunk.as_ref());
-                // Parse line for now.
-                println!("New line?");
-                if let Some(i) = self.buf.iter().position(|&b| b == b'\n') {
-                    println!("...yes");
-                    let line = self.buf.split_to(i);
-                    match str::from_utf8(&line) {
-                        Ok(s) => {
-                            return Ok(Async::Ready(Some(s.to_string())))
-                        },
-                        Err(e) => {
-                            println!("got error");
-                            return Err(hyper::Error::Utf8(e))
-                        },
-                    };
-                } else {
-                    println!("...no");
+            match self.body.poll() {
+                Ok(Async::Ready(Some(chunk))) => {
+                    self.buf.put(chunk.as_ref());
+                    if let Some(line) = self.next_line() {
+                        return Ok(Async::Ready(Some(line)))
+                    } else {
+                        return Ok(Async::NotReady)
+                    }
+                },
+                Err(e) => return Err(From::from(e)),
+                Ok(Async::Ready(None)) => {
+                    println!("stream ended");
+                    // Check if chunks left.
+                    if let Some(line) = self.next_line() {
+                        return Ok(Async::Ready(Some(line)))
+                    } else {
+                        println!("stop");
+                        return Ok(Async::Ready(None))
+                    }
+                },
+                Ok(Async::NotReady) => {
+                    println!("not ready");
                     return Ok(Async::NotReady)
-                }
+                },
             }
             Ok(Async::NotReady)
         }
