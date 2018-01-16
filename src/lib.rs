@@ -35,6 +35,15 @@ mod mesos {
             }
             None
         }
+
+        /// Process all bytes in RecordIoConnection::buf.
+        fn drain(&mut self) -> Poll<Option<String>, hyper::error::Error> {
+          if let Some(line) = self.next_line() {
+              Ok(Async::Ready(Some(line)))
+          } else {
+              Ok(Async::Ready(None))
+          }
+        }
     }
 
     impl Stream for RecordIoConnection {
@@ -52,22 +61,9 @@ mod mesos {
                     }
                 },
                 Err(e) => return Err(From::from(e)),
-                Ok(Async::Ready(None)) => {
-                    println!("stream ended");
-                    // Check if chunks left.
-                    if let Some(line) = self.next_line() {
-                        return Ok(Async::Ready(Some(line)))
-                    } else {
-                        println!("stop");
-                        return Ok(Async::Ready(None))
-                    }
-                },
-                Ok(Async::NotReady) => {
-                    println!("not ready");
-                    return Ok(Async::NotReady)
-                },
+                Ok(Async::Ready(None)) => return self.drain(),
+                Ok(Async::NotReady) => return Ok(Async::NotReady),
             }
-            Ok(Async::NotReady)
         }
     }
 }
