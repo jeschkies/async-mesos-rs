@@ -4,5 +4,3 @@ rust:
   - beta
   - nightly
 cache: cargo
-script:
-    - cargo test
