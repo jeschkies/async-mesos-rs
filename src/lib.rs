@@ -1,5 +1,4 @@
 extern crate bytes;
-#[macro_use]
 extern crate futures;
 extern crate hyper;
 extern crate tokio_core;
@@ -13,7 +12,7 @@ mod mesos {
 
     use std::str;
 
-    trait Decoder {
+    pub trait Decoder {
         fn decode(&mut self, buf: &mut BytesMut) -> Option<String>;
     }
 
@@ -28,7 +27,7 @@ mod mesos {
 
                 match str::from_utf8(&line) {
                     Ok(s) => return Some(s.to_string()),
-                    Err(e) => {
+                    Err(_) => {
                         println!("got error");
                         return None
                     },
@@ -89,13 +88,31 @@ mod mesos {
 #[cfg(test)]
 mod tests {
 
-    use bytes::BytesMut;
+    use bytes::{BytesMut, BufMut};
 
     use futures::{Future, Stream};
 	use hyper::Client;
     use hyper::Uri;
     use mesos;
+    use mesos::{Decoder};
 	use tokio_core::reactor::Core;
+
+    #[test]
+    fn decode_lines() {
+        let mut buffer = BytesMut::with_capacity(1024);
+        buffer.put(&b"hello\nworld\n"[..]);
+        let mut decoder = mesos::LineDecoder{};
+
+        let first = decoder.decode(&mut buffer);
+        assert_eq!(first.is_some(), true);
+
+        let second = decoder.decode(&mut buffer);
+        assert_eq!(second.is_some(), true);
+
+        let third = decoder.decode(&mut buffer);
+        assert_eq!(third.is_some(), false);
+        assert_eq!(buffer.len(), 0);
+    }
 
     #[test]
     fn it_works() {
