@@ -5,19 +5,20 @@ extern crate tokio_core;
 
 mod mesos {
 
-    use bytes::BytesMut;
+    use bytes::{Bytes, BytesMut};
     use bytes::buf::BufMut;
     use hyper;
     use futures::{Async, Poll, Stream};
 
     use std::str;
 
-    pub trait Decoder {
-        fn decode(&mut self, buf: &mut BytesMut) -> Option<String>;
+    pub trait Decoder<T> {
+        fn decode(&mut self, buf: &mut BytesMut) -> Option<T>;
     }
 
+    /// Decodes lines of body stream.
     pub struct LineDecoder;
-    impl Decoder for LineDecoder {
+    impl Decoder<String> for LineDecoder {
 
         fn decode(&mut self, buf: &mut BytesMut) -> Option<String> {
             // Parse line for now.
@@ -36,6 +37,75 @@ mod mesos {
             None
         }
     }
+
+    #[derive(Debug)]
+    #[derive(PartialEq)]
+    pub enum RecordIoDecoderState {
+        TrimWhitespaces,
+        ReadLength,
+        ReadRecord { len: u64 },
+    }
+
+    /// Decoder for [RecordIO](http://mesos.apache.org/documentation/latest/scheduler-http-api/#recordio-response-format-1)
+    /// format.
+    pub struct RecordIoDecoder {
+        state: RecordIoDecoderState,
+    }
+    impl RecordIoDecoder {
+
+        pub fn new() -> Self {
+            Self { state: RecordIoDecoderState::TrimWhitespaces }
+        }
+
+        pub fn trim_whitespaces(&mut self, buf: &mut BytesMut) -> RecordIoDecoderState {
+            RecordIoDecoderState::ReadLength
+        }
+
+        pub fn decode_length(&mut self, buf: &mut BytesMut) -> RecordIoDecoderState {
+            if let Some(i) = buf.iter().position(|&b| b == b'\n') {
+                let length = buf.split_to(i);
+                buf.split_to(1);
+
+                match str::from_utf8(&length) {
+                    Ok(s) => {
+                        let length: u64 = s.parse().unwrap();
+                        return RecordIoDecoderState::ReadRecord { len: length }
+                    },
+                    Err(_) => {
+                        println!("got error");
+                        // TODO: Return error.
+                        return RecordIoDecoderState::ReadLength
+                    },
+                };
+            }
+            RecordIoDecoderState::ReadLength
+        }
+
+        pub fn decode_record(&mut self, length: u64, bug: &mut BytesMut) -> (RecordIoDecoderState, Option<Bytes>) {
+            (RecordIoDecoderState::TrimWhitespaces, None)
+        }
+    }
+    impl Decoder<Bytes> for RecordIoDecoder {
+
+        fn decode(&mut self, buf: &mut BytesMut) -> Option<Bytes> {
+            match self.state {
+                RecordIoDecoderState::TrimWhitespaces => {
+                    self.state = self.trim_whitespaces(buf);
+                    return None
+                },
+                RecordIoDecoderState::ReadLength => {
+                    self.state = self.decode_length(buf);
+                    return None
+                },
+                RecordIoDecoderState::ReadRecord { len } => {
+                    let (new_state, record) = self.decode_record(len, buf);
+                    self.state = new_state;
+                    return record
+                },
+            }
+        }
+    }
+
 
     pub struct RecordIoConnection {
         pub buf: BytesMut,
@@ -94,8 +164,18 @@ mod tests {
 	use hyper::Client;
     use hyper::Uri;
     use mesos;
-    use mesos::{Decoder};
+    use mesos::{Decoder, RecordIoDecoderState};
 	use tokio_core::reactor::Core;
+
+    #[test]
+    fn decode_length() {
+        let mut buffer = BytesMut::with_capacity(1024);
+        buffer.put(&b"121\n"[..]);
+        let mut decoder = mesos::RecordIoDecoder::new();
+
+        let length = decoder.decode_length(&mut buffer);
+        assert_eq!(length, mesos::RecordIoDecoderState::ReadRecord { len: 121 });
+    }
 
     #[test]
     fn decode_lines() {
