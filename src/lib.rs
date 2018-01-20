@@ -57,7 +57,13 @@ mod mesos {
             Self { state: RecordIoDecoderState::TrimWhitespaces }
         }
 
+        fn is_whitespace(&mut self, b: &u8) -> bool {
+            (*b == b' ' || *b == b'\n' || *b == b'\r' || *b == b'\t')
+        }
+
         pub fn trim_whitespaces(&mut self, buf: &mut BytesMut) -> RecordIoDecoderState {
+            let whitespaces: usize = buf.iter().take_while(|&b| self.is_whitespace(b)).count();
+            buf.split_to(whitespaces);
             RecordIoDecoderState::ReadLength
         }
 
@@ -81,8 +87,13 @@ mod mesos {
             RecordIoDecoderState::ReadLength
         }
 
-        pub fn decode_record(&mut self, length: u64, bug: &mut BytesMut) -> (RecordIoDecoderState, Option<Bytes>) {
-            (RecordIoDecoderState::TrimWhitespaces, None)
+        pub fn decode_record(&mut self, length: u64, buf: &mut BytesMut) -> (RecordIoDecoderState, Option<Bytes>) {
+            if (buf.len() as u64)  < length {
+                return (RecordIoDecoderState::ReadRecord { len: length}, None)
+            } else {
+                let record_buf = buf.split_to(length as usize);
+                return (RecordIoDecoderState::TrimWhitespaces, Some(record_buf.freeze()))
+            }
         }
     }
     impl Decoder<Bytes> for RecordIoDecoder {
@@ -168,13 +179,46 @@ mod tests {
 	use tokio_core::reactor::Core;
 
     #[test]
+    fn trim_whitespaces() {
+        let mut buffer = BytesMut::with_capacity(1024);
+        buffer.put(&b"\t\n \r121\n{\"type\":\"HEARTBEAT\"}"[..]);
+        let mut decoder = mesos::RecordIoDecoder::new();
+
+        let state = decoder.trim_whitespaces(&mut buffer);
+        assert_eq!(state, mesos::RecordIoDecoderState::ReadLength);
+        assert_eq!(buffer, "121\n{\"type\":\"HEARTBEAT\"}");
+    }
+
+    #[test]
     fn decode_length() {
         let mut buffer = BytesMut::with_capacity(1024);
         buffer.put(&b"121\n"[..]);
         let mut decoder = mesos::RecordIoDecoder::new();
 
-        let length = decoder.decode_length(&mut buffer);
-        assert_eq!(length, mesos::RecordIoDecoderState::ReadRecord { len: 121 });
+        let state = decoder.decode_length(&mut buffer);
+        assert_eq!(state, mesos::RecordIoDecoderState::ReadRecord { len: 121 });
+    }
+
+    #[test]
+    fn decode_record() {
+        let mut buffer = BytesMut::with_capacity(1024);
+        buffer.put(&b"{\"type\":\"HEARTBEAT\"}"[..]);
+        let mut decoder = mesos::RecordIoDecoder::new();
+
+        let (state, record) = decoder.decode_record(20, &mut buffer);
+        assert_eq!(state, mesos::RecordIoDecoderState::TrimWhitespaces);
+        assert_eq!(record.expect("Record was not read."), "{\"type\":\"HEARTBEAT\"}")
+    }
+
+    #[test]
+    fn not_decode_record() {
+        let mut buffer = BytesMut::with_capacity(1024);
+        buffer.put(&b"{\"type\":\"HEARTBEAT\"}"[..]);
+        let mut decoder = mesos::RecordIoDecoder::new();
+
+        let (state, record) = decoder.decode_record(42, &mut buffer);
+        assert_eq!(state, mesos::RecordIoDecoderState::ReadRecord { len: 42 });
+        assert_eq!(record.is_some(), false)
     }
 
     #[test]
