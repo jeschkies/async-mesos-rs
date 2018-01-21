@@ -99,21 +99,22 @@ mod mesos {
     impl Decoder<Bytes> for RecordIoDecoder {
 
         fn decode(&mut self, buf: &mut BytesMut) -> Option<Bytes> {
-            match self.state {
-                RecordIoDecoderState::TrimWhitespaces => {
-                    self.state = self.trim_whitespaces(buf);
-                    return None
-                },
-                RecordIoDecoderState::ReadLength => {
-                    self.state = self.decode_length(buf);
-                    return None
-                },
-                RecordIoDecoderState::ReadRecord { len } => {
-                    let (new_state, record) = self.decode_record(len, buf);
-                    self.state = new_state;
-                    return record
-                },
+            while buf.len() > 0 {
+                match self.state {
+                    RecordIoDecoderState::TrimWhitespaces => {
+                        self.state = self.trim_whitespaces(buf);
+                    },
+                    RecordIoDecoderState::ReadLength => {
+                        self.state = self.decode_length(buf);
+                    },
+                    RecordIoDecoderState::ReadRecord { len } => {
+                        let (new_state, record) = self.decode_record(len, buf);
+                        self.state = new_state;
+                        return record
+                    },
+                }
             }
+            return None;
         }
     }
 
@@ -220,6 +221,26 @@ mod tests {
         assert_eq!(state, mesos::RecordIoDecoderState::ReadRecord { len: 42 });
         assert_eq!(record.is_some(), false)
     }
+
+    #[test]
+    fn decode_multiple_records() {
+        let mut buffer = BytesMut::with_capacity(1024);
+        let body = b"\t  \r\n121\n{\"type\": \"SUBSCRIBED\",\"subscribed\": {\"framework_id\": {\"value\":\"12220-3440-12532-2345\"},\"heartbeat_interval_seconds\":15.0}\
+            \t \r\n 20\n{\"type\":\"HEARTBEAT\"}";
+        buffer.put(&body[..]);
+        let mut decoder = mesos::RecordIoDecoder::new();
+
+        let first = decoder.decode(&mut buffer);
+        assert_eq!(first.expect("First record was not decoded."), "{\"type\": \"SUBSCRIBED\",\"subscribed\": {\"framework_id\": {\"value\":\"12220-3440-12532-2345\"},\"heartbeat_interval_seconds\":15.0}");
+
+        let second = decoder.decode(&mut buffer);
+        assert_eq!(second.expect("Second record was not decoded."), "{\"type\":\"HEARTBEAT\"}");
+
+        let third = decoder.decode(&mut buffer);
+        assert_eq!(third.is_some(), false);
+    }
+
+    // EXPERIMENTS
 
     #[test]
     fn decode_lines() {
