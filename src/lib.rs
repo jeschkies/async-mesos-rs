@@ -19,7 +19,6 @@ mod mesos {
     /// Decodes lines of body stream.
     pub struct LineDecoder;
     impl Decoder<String> for LineDecoder {
-
         fn decode(&mut self, buf: &mut BytesMut) -> Option<String> {
             // Parse line for now.
             if let Some(i) = buf.iter().position(|&b| b == b'\n') {
@@ -30,16 +29,15 @@ mod mesos {
                     Ok(s) => return Some(s.to_string()),
                     Err(_) => {
                         println!("got error");
-                        return None
-                    },
+                        return None;
+                    }
                 };
             }
             None
         }
     }
 
-    #[derive(Debug)]
-    #[derive(PartialEq)]
+    #[derive(Debug, PartialEq)]
     pub enum RecordIoDecoderState {
         TrimWhitespaces,
         ReadLength,
@@ -52,9 +50,10 @@ mod mesos {
         state: RecordIoDecoderState,
     }
     impl RecordIoDecoder {
-
         pub fn new() -> Self {
-            Self { state: RecordIoDecoderState::TrimWhitespaces }
+            Self {
+                state: RecordIoDecoderState::TrimWhitespaces,
+            }
         }
 
         fn is_whitespace(&mut self, b: &u8) -> bool {
@@ -75,49 +74,54 @@ mod mesos {
                 match str::from_utf8(&length) {
                     Ok(s) => {
                         let length: u64 = s.parse().unwrap();
-                        return RecordIoDecoderState::ReadRecord { len: length }
-                    },
+                        return RecordIoDecoderState::ReadRecord { len: length };
+                    }
                     Err(_) => {
                         println!("got error");
                         // TODO: Return error.
-                        return RecordIoDecoderState::ReadLength
-                    },
+                        return RecordIoDecoderState::ReadLength;
+                    }
                 };
             }
             RecordIoDecoderState::ReadLength
         }
 
-        pub fn decode_record(&mut self, length: u64, buf: &mut BytesMut) -> (RecordIoDecoderState, Option<Bytes>) {
-            if (buf.len() as u64)  < length {
-                return (RecordIoDecoderState::ReadRecord { len: length}, None)
+        pub fn decode_record(
+            &mut self,
+            length: u64,
+            buf: &mut BytesMut,
+        ) -> (RecordIoDecoderState, Option<Bytes>) {
+            if (buf.len() as u64) < length {
+                return (RecordIoDecoderState::ReadRecord { len: length }, None);
             } else {
                 let record_buf = buf.split_to(length as usize);
-                return (RecordIoDecoderState::TrimWhitespaces, Some(record_buf.freeze()))
+                return (
+                    RecordIoDecoderState::TrimWhitespaces,
+                    Some(record_buf.freeze()),
+                );
             }
         }
     }
     impl Decoder<Bytes> for RecordIoDecoder {
-
         fn decode(&mut self, buf: &mut BytesMut) -> Option<Bytes> {
             while buf.len() > 0 {
                 match self.state {
                     RecordIoDecoderState::TrimWhitespaces => {
                         self.state = self.trim_whitespaces(buf);
-                    },
+                    }
                     RecordIoDecoderState::ReadLength => {
                         self.state = self.decode_length(buf);
-                    },
+                    }
                     RecordIoDecoderState::ReadRecord { len } => {
                         let (new_state, record) = self.decode_record(len, buf);
                         self.state = new_state;
-                        return record
-                    },
+                        return record;
+                    }
                 }
             }
             return None;
         }
     }
-
 
     pub struct RecordIoConnection {
         pub buf: BytesMut,
@@ -126,39 +130,38 @@ mod mesos {
     }
 
     impl RecordIoConnection {
-
         pub fn new(body: hyper::Body) -> Self {
             Self {
                 buf: BytesMut::with_capacity(4096),
                 body: body,
-                decoder: LineDecoder{}
+                decoder: LineDecoder {},
             }
         }
 
         /// Process all bytes in RecordIoConnection::buf.
         fn drain(&mut self) -> Poll<Option<String>, hyper::error::Error> {
-          if let Some(line) = self.decoder.decode(&mut self.buf) {
-              Ok(Async::Ready(Some(line)))
-          } else {
-              Ok(Async::Ready(None))
-          }
+            if let Some(line) = self.decoder.decode(&mut self.buf) {
+                Ok(Async::Ready(Some(line)))
+            } else {
+                Ok(Async::Ready(None))
+            }
         }
     }
 
     impl Stream for RecordIoConnection {
-        type Item=String;
-        type Error=hyper::error::Error;
+        type Item = String;
+        type Error = hyper::error::Error;
 
         fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
             match self.body.poll() {
                 Ok(Async::Ready(Some(chunk))) => {
                     self.buf.put(chunk.as_ref());
                     if let Some(line) = self.decoder.decode(&mut self.buf) {
-                        return Ok(Async::Ready(Some(line)))
+                        return Ok(Async::Ready(Some(line)));
                     } else {
-                        return Ok(Async::NotReady)
+                        return Ok(Async::NotReady);
                     }
-                },
+                }
                 Err(e) => return Err(From::from(e)),
                 Ok(Async::Ready(None)) => return self.drain(),
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
@@ -170,14 +173,14 @@ mod mesos {
 #[cfg(test)]
 mod tests {
 
-    use bytes::{BytesMut, BufMut};
+    use bytes::{BufMut, BytesMut};
 
     use futures::{Future, Stream};
-	use hyper::Client;
+    use hyper::Client;
     use hyper::Uri;
     use mesos;
     use mesos::{Decoder, RecordIoDecoderState};
-	use tokio_core::reactor::Core;
+    use tokio_core::reactor::Core;
 
     #[test]
     fn trim_whitespaces() {
@@ -208,7 +211,10 @@ mod tests {
 
         let (state, record) = decoder.decode_record(20, &mut buffer);
         assert_eq!(state, mesos::RecordIoDecoderState::TrimWhitespaces);
-        assert_eq!(record.expect("Record was not read."), "{\"type\":\"HEARTBEAT\"}")
+        assert_eq!(
+            record.expect("Record was not read."),
+            "{\"type\":\"HEARTBEAT\"}"
+        )
     }
 
     #[test]
@@ -234,7 +240,10 @@ mod tests {
         assert_eq!(first.expect("First record was not decoded."), "{\"type\": \"SUBSCRIBED\",\"subscribed\": {\"framework_id\": {\"value\":\"12220-3440-12532-2345\"},\"heartbeat_interval_seconds\":15.0}");
 
         let second = decoder.decode(&mut buffer);
-        assert_eq!(second.expect("Second record was not decoded."), "{\"type\":\"HEARTBEAT\"}");
+        assert_eq!(
+            second.expect("Second record was not decoded."),
+            "{\"type\":\"HEARTBEAT\"}"
+        );
 
         let third = decoder.decode(&mut buffer);
         assert_eq!(third.is_some(), false);
@@ -246,7 +255,7 @@ mod tests {
     fn decode_lines() {
         let mut buffer = BytesMut::with_capacity(1024);
         buffer.put(&b"hello\nworld\n"[..]);
-        let mut decoder = mesos::LineDecoder{};
+        let mut decoder = mesos::LineDecoder {};
 
         let first = decoder.decode(&mut buffer);
         assert_eq!(first.is_some(), true);
@@ -261,15 +270,15 @@ mod tests {
 
     #[test]
     fn it_works() {
-		let mut core = Core::new().unwrap();
+        let mut core = Core::new().unwrap();
         let handle = core.handle();
         let client = Client::new(&handle);
 
-		let uri = "http://httpbin.org/ip".parse::<Uri>().unwrap();
-		let work = client.get(uri).map(|res| {
-			println!("Response status: {}", res.status());
-            return mesos::RecordIoConnection::new(res.body())
-		});
+        let uri = "http://httpbin.org/ip".parse::<Uri>().unwrap();
+        let work = client.get(uri).map(|res| {
+            println!("Response status: {}", res.status());
+            return mesos::RecordIoConnection::new(res.body());
+        });
 
         let s: mesos::RecordIoConnection = core.run(work).unwrap();
         let w = s.for_each(|line: String| {
