@@ -1,4 +1,5 @@
 extern crate bytes;
+#[macro_use] extern crate failure;
 extern crate futures;
 extern crate tokio_core;
 
@@ -9,28 +10,29 @@ use futures::{Async, Poll, Stream};
 
 use std::str;
 
+#[derive(Debug, Fail)]
+struct DecoderError
+
 pub trait Decoder<T> {
-    fn decode(&mut self, buf: &mut BytesMut) -> Option<T>;
+    type Result<T> = Result<Option<T>, DecoderError>
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<T>;
 }
 
 /// Decodes lines of body stream.
 pub struct LineDecoder;
 impl Decoder<String> for LineDecoder {
-    fn decode(&mut self, buf: &mut BytesMut) -> Option<String> {
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<String>, DecoderError> {
         // Parse line for now.
         if let Some(i) = buf.iter().position(|&b| b == b'\n') {
             let line = buf.split_to(i);
             buf.split_to(1);
 
             match str::from_utf8(&line) {
-                Ok(s) => return Some(s.to_string()),
-                Err(_) => {
-                    println!("got error");
-                    return None;
-                }
+                Ok(s) => return Success { Some(s.to_string()) },
+                Err(_e) => return Err { _e },
             };
         }
-        None
+        Success{ None }
     }
 }
 
@@ -63,24 +65,18 @@ impl RecordIoDecoder {
         RecordIoDecoderState::ReadLength
     }
 
-    pub fn decode_length(&mut self, buf: &mut BytesMut) -> RecordIoDecoderState {
+    pub fn decode_length(&mut self, buf: &mut BytesMut) -> Result<RecordIoDecoderState, Error> {
         if let Some(i) = buf.iter().position(|&b| b == b'\n') {
             let length = buf.split_to(i);
             buf.split_to(1);
 
-            match str::from_utf8(&length) {
-                Ok(s) => {
-                    let length: u64 = s.parse().unwrap();
-                    return RecordIoDecoderState::ReadRecord { len: length };
-                }
-                Err(_) => {
-                    println!("got error");
-                    // TODO: Return error.
-                    return RecordIoDecoderState::ReadLength;
-                }
-            };
+            let s = str::from_utf8(&length)?;
+            let length: u64 = s.parse()?;
+            RecordIoDecoderState::ReadRecord { len: length }
+            // TODO: fail when length < 0
+        } else {
+            RecordIoDecoderState::ReadLength
         }
-        RecordIoDecoderState::ReadLength
     }
 
     pub fn decode_record(
@@ -91,6 +87,7 @@ impl RecordIoDecoder {
         if (buf.len() as u64) < length {
             return (RecordIoDecoderState::ReadRecord { len: length }, None);
         } else {
+            // TODO: Check buffer size with length
             let record_buf = buf.split_to(length as usize);
             return (
                 RecordIoDecoderState::TrimWhitespaces,
@@ -100,23 +97,24 @@ impl RecordIoDecoder {
     }
 }
 impl Decoder<Bytes> for RecordIoDecoder {
-    fn decode(&mut self, buf: &mut BytesMut) -> Option<Bytes> {
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Bytes, DecoderError> {
         while buf.len() > 0 {
             match self.state {
                 RecordIoDecoderState::TrimWhitespaces => {
                     self.state = self.trim_whitespaces(buf);
                 }
                 RecordIoDecoderState::ReadLength => {
-                    self.state = self.decode_length(buf);
+                    // TODO: Create cause for error
+                    self.state = self.decode_length(buf)?;
                 }
                 RecordIoDecoderState::ReadRecord { len } => {
                     let (new_state, record) = self.decode_record(len, buf);
                     self.state = new_state;
-                    return record;
+                    return Success{record};
                 }
             }
         }
-        return None;
+        return Success{None};
     }
 }
 
@@ -147,13 +145,13 @@ impl RecordIoConnection {
 
 impl Stream for RecordIoConnection {
     type Item = String;
-    type Error = hyper::error::Error;
+    type Error = DecoderError;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         match self.body.poll() {
             Ok(Async::Ready(Some(chunk))) => {
                 self.buf.put(chunk.as_ref());
-                if let Some(line) = self.decoder.decode(&mut self.buf) {
+                if let Some(line) = self.decoder.decode(&mut self.buf)? {
                     return Ok(Async::Ready(Some(line)));
                 } else {
                     return Ok(Async::NotReady);
