@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv E56151BF
 DISTRO=$(lsb_release -is | tr '[:upper:]' '[:lower:]')
