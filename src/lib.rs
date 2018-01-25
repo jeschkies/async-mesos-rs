@@ -1,7 +1,8 @@
-
 extern crate bytes;
+#[macro_use] extern crate failure;
 extern crate futures;
 extern crate hyper;
+extern crate spectral;
 extern crate tokio_core;
 
 mod mesos;
@@ -10,12 +11,12 @@ mod mesos;
 mod experiments {
 
     use bytes::{BufMut, BytesMut};
-
     use futures::{Future, Stream};
     use hyper::Client;
     use hyper::Uri;
     use mesos;
     use mesos::{Decoder, RecordIoDecoderState};
+    use spectral::prelude::*;
     use tokio_core::reactor::Core;
 
     #[test]
@@ -25,13 +26,13 @@ mod experiments {
         let mut decoder = mesos::LineDecoder {};
 
         let first = decoder.decode(&mut buffer);
-        assert_eq!(first.is_some(), true);
+        assert_that(&first).is_ok().is_some();
 
         let second = decoder.decode(&mut buffer);
-        assert_eq!(second.is_some(), true);
+        assert_that(&second).is_ok().is_some();
 
         let third = decoder.decode(&mut buffer);
-        assert_eq!(third.is_some(), false);
+        assert_that(&third).is_ok().is_none();
         assert_eq!(buffer.len(), 0);
     }
 

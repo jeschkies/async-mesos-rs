@@ -1,38 +1,42 @@
 extern crate bytes;
-#[macro_use] extern crate failure;
 extern crate futures;
+extern crate spectral;
 extern crate tokio_core;
 
 use bytes::{Bytes, BytesMut};
 use bytes::buf::BufMut;
+use failure;
+use failure::Error;
 use hyper;
 use futures::{Async, Poll, Stream};
 
 use std::str;
 
-#[derive(Debug, Fail)]
-struct DecoderError
+#[derive(Fail, Debug)]
+pub enum DecoderError {
+    #[fail(display = "Could not decode RecordIO frame.")]
+    Frame(#[cause] str::Utf8Error),
+}
 
 pub trait Decoder<T> {
-    type Result<T> = Result<Option<T>, DecoderError>
-    fn decode(&mut self, buf: &mut BytesMut) -> Result<T>;
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<T>, Error>;
 }
 
 /// Decodes lines of body stream.
 pub struct LineDecoder;
 impl Decoder<String> for LineDecoder {
-    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<String>, DecoderError> {
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<String>, Error> {
         // Parse line for now.
         if let Some(i) = buf.iter().position(|&b| b == b'\n') {
             let line = buf.split_to(i);
             buf.split_to(1);
 
             match str::from_utf8(&line) {
-                Ok(s) => return Success { Some(s.to_string()) },
-                Err(_e) => return Err { _e },
+                Ok(s) => return Ok(Some(s.to_string())),
+                Err(_e) => return Err(From::from(DecoderError::Frame(_e))),
             };
         }
-        Success{ None }
+        Ok(None)
     }
 }
 
@@ -72,10 +76,10 @@ impl RecordIoDecoder {
 
             let s = str::from_utf8(&length)?;
             let length: u64 = s.parse()?;
-            RecordIoDecoderState::ReadRecord { len: length }
+            Ok(RecordIoDecoderState::ReadRecord { len: length })
             // TODO: fail when length < 0
         } else {
-            RecordIoDecoderState::ReadLength
+            Ok(RecordIoDecoderState::ReadLength)
         }
     }
 
@@ -97,7 +101,7 @@ impl RecordIoDecoder {
     }
 }
 impl Decoder<Bytes> for RecordIoDecoder {
-    fn decode(&mut self, buf: &mut BytesMut) -> Result<Bytes, DecoderError> {
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Bytes>, Error> {
         while buf.len() > 0 {
             match self.state {
                 RecordIoDecoderState::TrimWhitespaces => {
@@ -110,11 +114,11 @@ impl Decoder<Bytes> for RecordIoDecoder {
                 RecordIoDecoderState::ReadRecord { len } => {
                     let (new_state, record) = self.decode_record(len, buf);
                     self.state = new_state;
-                    return Success{record};
+                    return Ok(record);
                 }
             }
         }
-        return Success{None};
+        return Ok(None);
     }
 }
 
@@ -134,8 +138,8 @@ impl RecordIoConnection {
     }
 
     /// Process all bytes in RecordIoConnection::buf.
-    fn drain(&mut self) -> Poll<Option<String>, hyper::error::Error> {
-        if let Some(line) = self.decoder.decode(&mut self.buf) {
+    fn drain(&mut self) -> Poll<Option<String>, Error> {
+        if let Some(line) = try!(self.decoder.decode(&mut self.buf)) {
             Ok(Async::Ready(Some(line)))
         } else {
             Ok(Async::Ready(None))
@@ -145,13 +149,13 @@ impl RecordIoConnection {
 
 impl Stream for RecordIoConnection {
     type Item = String;
-    type Error = DecoderError;
+    type Error = failure::Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         match self.body.poll() {
             Ok(Async::Ready(Some(chunk))) => {
                 self.buf.put(chunk.as_ref());
-                if let Some(line) = self.decoder.decode(&mut self.buf)? {
+                if let Some(line) = try!(self.decoder.decode(&mut self.buf)) {
                     return Ok(Async::Ready(Some(line)));
                 } else {
                     return Ok(Async::NotReady);
@@ -168,10 +172,10 @@ impl Stream for RecordIoConnection {
 #[cfg(test)]
 mod tests {
 
-    use bytes::{BufMut, BytesMut};
+    use bytes::{BufMut, Bytes, BytesMut};
     use mesos;
     use mesos::{Decoder, RecordIoDecoderState};
-    use tokio_core::reactor::Core;
+    use spectral::prelude::*;
 
     #[test]
     fn trim_whitespaces() {
@@ -191,7 +195,9 @@ mod tests {
         let mut decoder = mesos::RecordIoDecoder::new();
 
         let state = decoder.decode_length(&mut buffer);
-        assert_eq!(state, mesos::RecordIoDecoderState::ReadRecord { len: 121 });
+        assert_that(&state)
+            .is_ok()
+            .is_equal_to(mesos::RecordIoDecoderState::ReadRecord { len: 121 });
     }
 
     #[test]
@@ -202,10 +208,9 @@ mod tests {
 
         let (state, record) = decoder.decode_record(20, &mut buffer);
         assert_eq!(state, mesos::RecordIoDecoderState::TrimWhitespaces);
-        assert_eq!(
-            record.expect("Record was not read."),
-            "{\"type\":\"HEARTBEAT\"}"
-        )
+        assert_that(&record)
+            .is_some()
+            .is_equal_to(Bytes::from("{\"type\":\"HEARTBEAT\"}"));
     }
 
     #[test]
@@ -216,7 +221,7 @@ mod tests {
 
         let (state, record) = decoder.decode_record(42, &mut buffer);
         assert_eq!(state, mesos::RecordIoDecoderState::ReadRecord { len: 42 });
-        assert_eq!(record.is_some(), false)
+        assert_that(&record).is_none();
     }
 
     #[test]
@@ -228,15 +233,19 @@ mod tests {
         let mut decoder = mesos::RecordIoDecoder::new();
 
         let first = decoder.decode(&mut buffer);
-        assert_eq!(first.expect("First record was not decoded."), "{\"type\": \"SUBSCRIBED\",\"subscribed\": {\"framework_id\": {\"value\":\"12220-3440-12532-2345\"},\"heartbeat_interval_seconds\":15.0}");
+        let expected = Bytes::from("{\"type\": \"SUBSCRIBED\",\"subscribed\": {\"framework_id\": {\"value\":\"12220-3440-12532-2345\"},\"heartbeat_interval_seconds\":15.0}");
+        assert_that(&first)
+            .is_ok()
+            .is_some()
+            .is_equal_to(expected);
 
         let second = decoder.decode(&mut buffer);
-        assert_eq!(
-            second.expect("Second record was not decoded."),
-            "{\"type\":\"HEARTBEAT\"}"
-        );
+        assert_that(&second)
+            .is_ok()
+            .is_some()
+            .is_equal_to(Bytes::from("{\"type\":\"HEARTBEAT\"}"));
 
         let third = decoder.decode(&mut buffer);
-        assert_eq!(third.is_some(), false);
+        assert_that(&third).is_ok().is_none();
     }
 }
