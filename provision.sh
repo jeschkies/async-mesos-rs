@@ -9,5 +9,4 @@ echo "deb http://repos.mesosphere.io/${DISTRO} ${CODENAME} main" | \
     sudo tee /etc/apt/sources.list.d/mesosphere.list
 apt-get -y update
 
-apt-get -y install mesos=1.4.0-2.0.1
-apt-get -y install zookeeperd
+apt-get -y install mesos=1.4.0-2.0.1 zookeeperd
