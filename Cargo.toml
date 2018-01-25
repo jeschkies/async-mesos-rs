@@ -5,8 +5,8 @@ authors = ["Karsten Jeschkies <jeskar@web.de>"]
 
 [dependencies]
 bytes = "0.4"
-failure = "0.1.1"
+failure = "0.1"
 futures = "0.1"
 hyper = "0.11"
-spectral = "0.6.0"
+spectral = "0.6"
 tokio-core = "0.1"

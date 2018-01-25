@@ -135,7 +135,7 @@ impl RecordIoConnection {
 
     /// Process all bytes in RecordIoConnection::buf.
     fn drain(&mut self) -> Poll<Option<String>, Error> {
-        if let Some(line) = try!(self.decoder.decode(&mut self.buf)) {
+        if let Some(line) = self.decoder.decode(&mut self.buf)? {
             Ok(Async::Ready(Some(line)))
         } else {
             Ok(Async::Ready(None))
