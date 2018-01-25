@@ -8,4 +8,4 @@ rust:
   - nightly
 cache: cargo
 before_install:
-    - sudo ./provision.sh
+    - sudo ./ci/provision.sh
