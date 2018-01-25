@@ -1,99 +1,51 @@
+
 extern crate bytes;
-#[macro_use]
 extern crate futures;
 extern crate hyper;
 extern crate tokio_core;
 
-mod mesos {
-
-    use bytes::BytesMut;
-    use bytes::buf::BufMut;
-    use hyper;
-    use futures::{Async, Poll, Stream};
-
-    use std::str;
-
-    pub struct RecordIoConnection {
-        pub buf: BytesMut,
-        pub body: hyper::Body,
-    }
-
-    impl RecordIoConnection {
-        fn next_line(&mut self) -> Option<String> {
-            // Parse line for now.
-            if let Some(i) = self.buf.iter().position(|&b| b == b'\n') {
-                let line = self.buf.split_to(i);
-                self.buf.split_to(1);
-
-                match str::from_utf8(&line) {
-                    Ok(s) => return Some(s.to_string()),
-                    Err(e) => {
-                        println!("got error");
-                        return None
-                    },
-                };
-            }
-            None
-        }
-    }
-
-    impl Stream for RecordIoConnection {
-        type Item=String;
-        type Error=hyper::error::Error;
-
-        fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-            match self.body.poll() {
-                Ok(Async::Ready(Some(chunk))) => {
-                    self.buf.put(chunk.as_ref());
-                    if let Some(line) = self.next_line() {
-                        return Ok(Async::Ready(Some(line)))
-                    } else {
-                        return Ok(Async::NotReady)
-                    }
-                },
-                Err(e) => return Err(From::from(e)),
-                Ok(Async::Ready(None)) => {
-                    println!("stream ended");
-                    // Check if chunks left.
-                    if let Some(line) = self.next_line() {
-                        return Ok(Async::Ready(Some(line)))
-                    } else {
-                        println!("stop");
-                        return Ok(Async::Ready(None))
-                    }
-                },
-                Ok(Async::NotReady) => {
-                    println!("not ready");
-                    return Ok(Async::NotReady)
-                },
-            }
-            Ok(Async::NotReady)
-        }
-    }
-}
+mod mesos;
 
 #[cfg(test)]
-mod tests {
+mod experiments {
 
-    use bytes::BytesMut;
+    use bytes::{BufMut, BytesMut};
 
     use futures::{Future, Stream};
-	use hyper::Client;
+    use hyper::Client;
     use hyper::Uri;
     use mesos;
-	use tokio_core::reactor::Core;
+    use mesos::{Decoder, RecordIoDecoderState};
+    use tokio_core::reactor::Core;
+
+    #[test]
+    fn decode_lines() {
+        let mut buffer = BytesMut::with_capacity(1024);
+        buffer.put(&b"hello\nworld\n"[..]);
+        let mut decoder = mesos::LineDecoder {};
+
+        let first = decoder.decode(&mut buffer);
+        assert_eq!(first.is_some(), true);
+
+        let second = decoder.decode(&mut buffer);
+        assert_eq!(second.is_some(), true);
+
+        let third = decoder.decode(&mut buffer);
+        assert_eq!(third.is_some(), false);
+        assert_eq!(buffer.len(), 0);
+    }
 
     #[test]
     fn it_works() {
-		let mut core = Core::new().unwrap();
+        let mut core = Core::new().unwrap();
         let handle = core.handle();
         let client = Client::new(&handle);
 
-		let uri = "http://httpbin.org/ip".parse::<Uri>().unwrap();
-		let work = client.get(uri).map(|res| {
-			println!("Response status: {}", res.status());
-            mesos::RecordIoConnection { buf: BytesMut::with_capacity(4096), body: res.body() }
-		});
+        let uri = "http://httpbin.org/ip".parse::<Uri>().unwrap();
+        let work = client.get(uri).map(|res| {
+            println!("Response status: {}", res.status());
+            return mesos::RecordIoConnection::new(res.body());
+        });
 
         let s: mesos::RecordIoConnection = core.run(work).unwrap();
         let w = s.for_each(|line: String| {
