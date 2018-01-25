@@ -4,3 +4,5 @@ rust:
   - beta
   - nightly
 cache: cargo
+before_install:
+    - sudo ./provision.sh
