@@ -15,7 +15,7 @@ use std::str;
 #[derive(Fail, Debug)]
 pub enum DecoderError {
     #[fail(display = "Could not decode RecordIO frame.")]
-    Frame(#[cause] str::Utf8Error),
+    Frame,
 }
 
 pub trait Decoder<T> {
@@ -31,12 +31,11 @@ impl Decoder<String> for LineDecoder {
             let line = buf.split_to(i);
             buf.split_to(1);
 
-            match str::from_utf8(&line) {
-                Ok(s) => return Ok(Some(s.to_string())),
-                Err(_e) => return Err(From::from(DecoderError::Frame(_e))),
-            };
+            let s = str::from_utf8(&line)?;
+            Ok(Some(s.to_string()))
+        } else {
+            Ok(None)
         }
-        Ok(None)
     }
 }
 
@@ -77,7 +76,6 @@ impl RecordIoDecoder {
             let s = str::from_utf8(&length)?;
             let length: u64 = s.parse()?;
             Ok(RecordIoDecoderState::ReadRecord { len: length })
-            // TODO: fail when length < 0
         } else {
             Ok(RecordIoDecoderState::ReadLength)
         }
@@ -91,7 +89,6 @@ impl RecordIoDecoder {
         if (buf.len() as u64) < length {
             return (RecordIoDecoderState::ReadRecord { len: length }, None);
         } else {
-            // TODO: Check buffer size with length
             let record_buf = buf.split_to(length as usize);
             return (
                 RecordIoDecoderState::TrimWhitespaces,
@@ -108,7 +105,6 @@ impl Decoder<Bytes> for RecordIoDecoder {
                     self.state = self.trim_whitespaces(buf);
                 }
                 RecordIoDecoderState::ReadLength => {
-                    // TODO: Create cause for error
                     self.state = self.decode_length(buf)?;
                 }
                 RecordIoDecoderState::ReadRecord { len } => {
@@ -154,7 +150,11 @@ impl Stream for RecordIoConnection {
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         match self.body.poll() {
             Ok(Async::Ready(Some(chunk))) => {
-                self.buf.put(chunk.as_ref());
+                if chunk.len() <= self.buf.remaining_mut() {
+                    // Potential deadlock. If we cannot parse and the buffer is
+                    // full we should give an error.
+                    self.buf.put(chunk.as_ref());
+                }
                 if let Some(line) = try!(self.decoder.decode(&mut self.buf)) {
                     return Ok(Async::Ready(Some(line)));
                 } else {
@@ -198,6 +198,26 @@ mod tests {
         assert_that(&state)
             .is_ok()
             .is_equal_to(mesos::RecordIoDecoderState::ReadRecord { len: 121 });
+    }
+
+    #[test]
+    fn decode_length_error() {
+        let mut buffer = BytesMut::with_capacity(1024);
+        buffer.put(&b"1f1\n"[..]);
+        let mut decoder = mesos::RecordIoDecoder::new();
+
+        let state = decoder.decode_length(&mut buffer);
+        assert_that(&state).is_err();
+    }
+
+    #[test]
+    fn decode_length_invalid() {
+        let mut buffer = BytesMut::with_capacity(1024);
+        buffer.put(&b"-42\n"[..]);
+        let mut decoder = mesos::RecordIoDecoder::new();
+
+        let state = decoder.decode_length(&mut buffer);
+        assert_that(&state).is_err();
     }
 
     #[test]
