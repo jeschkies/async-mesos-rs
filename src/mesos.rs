@@ -18,25 +18,9 @@ pub enum DecoderError {
     Frame,
 }
 
-pub trait Decoder<T> {
-    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<T>, Error>;
-}
-
-/// Decodes lines of body stream.
-pub struct LineDecoder;
-impl Decoder<String> for LineDecoder {
-    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<String>, Error> {
-        // Parse line for now.
-        if let Some(i) = buf.iter().position(|&b| b == b'\n') {
-            let line = buf.split_to(i);
-            buf.split_to(1);
-
-            let s = str::from_utf8(&line)?;
-            Ok(Some(s.to_string()))
-        } else {
-            Ok(None)
-        }
-    }
+pub trait Decoder {
+    type Item;
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Error>;
 }
 
 #[derive(Debug, PartialEq)]
@@ -97,7 +81,9 @@ impl RecordIoDecoder {
         }
     }
 }
-impl Decoder<Bytes> for RecordIoDecoder {
+impl Decoder for RecordIoDecoder {
+    type Item = Bytes;
+
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Bytes>, Error> {
         while buf.len() > 0 {
             match self.state {
@@ -121,7 +107,7 @@ impl Decoder<Bytes> for RecordIoDecoder {
 pub struct RecordIoConnection {
     pub buf: BytesMut,
     pub body: hyper::Body,
-    decoder: LineDecoder,
+    decoder: RecordIoDecoder,
 }
 
 impl RecordIoConnection {
@@ -129,14 +115,14 @@ impl RecordIoConnection {
         Self {
             buf: BytesMut::with_capacity(4096),
             body: body,
-            decoder: LineDecoder {},
+            decoder: RecordIoDecoder::new(),
         }
     }
 
     /// Process all bytes in RecordIoConnection::buf.
-    fn drain(&mut self) -> Poll<Option<String>, Error> {
-        if let Some(line) = self.decoder.decode(&mut self.buf)? {
-            Ok(Async::Ready(Some(line)))
+    fn drain(&mut self) -> Poll<Option<Bytes>, Error> {
+        if let Some(record) = self.decoder.decode(&mut self.buf)? {
+            Ok(Async::Ready(Some(record)))
         } else {
             Ok(Async::Ready(None))
         }
@@ -144,7 +130,7 @@ impl RecordIoConnection {
 }
 
 impl Stream for RecordIoConnection {
-    type Item = String;
+    type Item = Bytes; // TODO: RecordIoDecoder::Item
     type Error = failure::Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
