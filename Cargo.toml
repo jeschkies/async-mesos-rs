@@ -8,5 +8,6 @@ bytes = "0.4"
 failure = "0.1"
 futures = "0.1"
 hyper = "0.11"
+protobuf = { version = "1.4", features = ["with-bytes"] }
 spectral = "0.6"
 tokio-core = "0.1"
