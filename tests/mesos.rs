@@ -10,8 +10,8 @@ mod integration {
     use futures::{Future, Stream};
     use hyper::Client;
     use hyper::Uri;
-    use async_mesos::mesos;
-    use async_mesos::mesos::Decoder;
+    use async_mesos::client;
+    use async_mesos::client::{Decoder, RecordIoConnection};
     use spectral::prelude::*;
     use std::str;
     use tokio_core::reactor::Core;
@@ -25,10 +25,10 @@ mod integration {
         let uri = "http://localhost:5050".parse::<Uri>().unwrap();
         let work = client.get(uri).map(|res| {
             println!("Response status: {}", res.status());
-            return mesos::RecordIoConnection::new(res.body());
+            return RecordIoConnection::new(res.body());
         });
 
-        let records: mesos::RecordIoConnection = core.run(work).unwrap();
+        let records: RecordIoConnection = core.run(work).unwrap();
         let w = records.for_each(|bytes| {
             println!("{}", str::from_utf8(&bytes)?);
             Ok(())

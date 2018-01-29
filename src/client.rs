@@ -159,18 +159,18 @@ impl Stream for RecordIoConnection {
 mod tests {
 
     use bytes::{BufMut, Bytes, BytesMut};
-    use mesos;
-    use mesos::{Decoder, RecordIoDecoderState};
+    use client;
+    use client::{Decoder, RecordIoDecoderState};
     use spectral::prelude::*;
 
     #[test]
     fn trim_whitespaces() {
         let mut buffer = BytesMut::with_capacity(1024);
         buffer.put(&b"\t\n \r121\n{\"type\":\"HEARTBEAT\"}"[..]);
-        let mut decoder = mesos::RecordIoDecoder::new();
+        let mut decoder = client::RecordIoDecoder::new();
 
         let state = decoder.trim_whitespaces(&mut buffer);
-        assert_eq!(state, mesos::RecordIoDecoderState::ReadLength);
+        assert_eq!(state, client::RecordIoDecoderState::ReadLength);
         assert_eq!(buffer, "121\n{\"type\":\"HEARTBEAT\"}");
     }
 
@@ -178,19 +178,19 @@ mod tests {
     fn decode_length() {
         let mut buffer = BytesMut::with_capacity(1024);
         buffer.put(&b"121\n"[..]);
-        let mut decoder = mesos::RecordIoDecoder::new();
+        let mut decoder = client::RecordIoDecoder::new();
 
         let state = decoder.decode_length(&mut buffer);
         assert_that(&state)
             .is_ok()
-            .is_equal_to(mesos::RecordIoDecoderState::ReadRecord { len: 121 });
+            .is_equal_to(client::RecordIoDecoderState::ReadRecord { len: 121 });
     }
 
     #[test]
     fn decode_length_error() {
         let mut buffer = BytesMut::with_capacity(1024);
         buffer.put(&b"1f1\n"[..]);
-        let mut decoder = mesos::RecordIoDecoder::new();
+        let mut decoder = client::RecordIoDecoder::new();
 
         let state = decoder.decode_length(&mut buffer);
         assert_that(&state).is_err();
@@ -200,7 +200,7 @@ mod tests {
     fn decode_length_invalid() {
         let mut buffer = BytesMut::with_capacity(1024);
         buffer.put(&b"-42\n"[..]);
-        let mut decoder = mesos::RecordIoDecoder::new();
+        let mut decoder = client::RecordIoDecoder::new();
 
         let state = decoder.decode_length(&mut buffer);
         assert_that(&state).is_err();
@@ -210,10 +210,10 @@ mod tests {
     fn decode_record() {
         let mut buffer = BytesMut::with_capacity(1024);
         buffer.put(&b"{\"type\":\"HEARTBEAT\"}"[..]);
-        let mut decoder = mesos::RecordIoDecoder::new();
+        let mut decoder = client::RecordIoDecoder::new();
 
         let (state, record) = decoder.decode_record(20, &mut buffer);
-        assert_eq!(state, mesos::RecordIoDecoderState::TrimWhitespaces);
+        assert_eq!(state, client::RecordIoDecoderState::TrimWhitespaces);
         assert_that(&record)
             .is_some()
             .is_equal_to(Bytes::from("{\"type\":\"HEARTBEAT\"}"));
@@ -223,10 +223,10 @@ mod tests {
     fn not_decode_record() {
         let mut buffer = BytesMut::with_capacity(1024);
         buffer.put(&b"{\"type\":\"HEARTBEAT\"}"[..]);
-        let mut decoder = mesos::RecordIoDecoder::new();
+        let mut decoder = client::RecordIoDecoder::new();
 
         let (state, record) = decoder.decode_record(42, &mut buffer);
-        assert_eq!(state, mesos::RecordIoDecoderState::ReadRecord { len: 42 });
+        assert_eq!(state, client::RecordIoDecoderState::ReadRecord { len: 42 });
         assert_that(&record).is_none();
     }
 
@@ -236,7 +236,7 @@ mod tests {
         let body = b"\t  \r\n121\n{\"type\": \"SUBSCRIBED\",\"subscribed\": {\"framework_id\": {\"value\":\"12220-3440-12532-2345\"},\"heartbeat_interval_seconds\":15.0}\
             \t \r\n 20\n{\"type\":\"HEARTBEAT\"}";
         buffer.put(&body[..]);
-        let mut decoder = mesos::RecordIoDecoder::new();
+        let mut decoder = client::RecordIoDecoder::new();
 
         let first = decoder.decode(&mut buffer);
         let expected = Bytes::from("{\"type\": \"SUBSCRIBED\",\"subscribed\": {\"framework_id\": {\"value\":\"12220-3440-12532-2345\"},\"heartbeat_interval_seconds\":15.0}");

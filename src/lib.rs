@@ -5,4 +5,4 @@ extern crate hyper;
 extern crate spectral;
 extern crate tokio_core;
 
-pub mod mesos;
+pub mod client;
