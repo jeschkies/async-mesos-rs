@@ -41,7 +41,7 @@ mod integration {
         call.set_field_type(scheduler::Call_Type::SUBSCRIBE);
 
         // Build request
-        let uri = "http://localhost:5050".parse::<Uri>().unwrap();
+        let uri = "http://localhost:5050/api/v1/scheduler".parse::<Uri>().unwrap();
         let mut request = Request::new(Method::Post, uri);
         let protobuf_media_type = "application/x-protobuf".parse::<mime::Mime>().unwrap();
         request.headers_mut().set(Accept(vec![qitem(protobuf_media_type.clone())]));
@@ -56,6 +56,7 @@ mod integration {
 
         let records: RecordIoConnection = core.run(work).unwrap();
         let w = records.for_each(|bytes| {
+            println!("Got first record");
             println!("{}", str::from_utf8(&bytes)?);
             Ok(())
         });

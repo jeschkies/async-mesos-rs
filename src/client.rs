@@ -58,7 +58,6 @@ impl RecordIoDecoder {
             buf.split_to(1);
 
             let s = str::from_utf8(&length)?;
-            println!("Try parseing {}", s);
             let length: u64 = s.parse()?;
             Ok(RecordIoDecoderState::ReadRecord { len: length })
         } else {
@@ -95,11 +94,12 @@ impl Decoder for RecordIoDecoder {
                     println!("Trimmed whitespaces");
                 }
                 RecordIoDecoderState::ReadLength => {
-                    println!("Decode lenght");
+                    println!("Decode length");
                     self.state = self.decode_length(buf)?;
                     println!("Decoded length");
                 }
                 RecordIoDecoderState::ReadRecord { len } => {
+                    println!("Get record of length {}", len);
                     let (new_state, record) = self.decode_record(len, buf);
                     self.state = new_state;
                     return Ok(record);
