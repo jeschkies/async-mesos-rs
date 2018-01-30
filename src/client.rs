@@ -58,6 +58,7 @@ impl RecordIoDecoder {
             buf.split_to(1);
 
             let s = str::from_utf8(&length)?;
+            println!("Try parseing {}", s);
             let length: u64 = s.parse()?;
             Ok(RecordIoDecoderState::ReadRecord { len: length })
         } else {
@@ -85,13 +86,18 @@ impl Decoder for RecordIoDecoder {
     type Item = Bytes;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Bytes>, Error> {
+        println!("Start decoding");
         while buf.len() > 0 {
             match self.state {
                 RecordIoDecoderState::TrimWhitespaces => {
+                    println!("Trim whitespaces...");
                     self.state = self.trim_whitespaces(buf);
+                    println!("Trimmed whitespaces");
                 }
                 RecordIoDecoderState::ReadLength => {
+                    println!("Decode lenght");
                     self.state = self.decode_length(buf)?;
+                    println!("Decoded length");
                 }
                 RecordIoDecoderState::ReadRecord { len } => {
                     let (new_state, record) = self.decode_record(len, buf);
@@ -113,7 +119,7 @@ pub struct RecordIoConnection {
 impl RecordIoConnection {
     pub fn new(body: hyper::Body) -> Self {
         Self {
-            buf: BytesMut::with_capacity(4096),
+            buf: BytesMut::with_capacity(8192),
             body: body,
             decoder: RecordIoDecoder::new(),
         }
@@ -136,14 +142,19 @@ impl Stream for RecordIoConnection {
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         match self.body.poll() {
             Ok(Async::Ready(Some(chunk))) => {
+                println!("Got chunk");
                 if chunk.len() <= self.buf.remaining_mut() {
+                    println!("put chunk into buffer");
                     // Potential deadlock. If we cannot parse and the buffer is
                     // full we should give an error.
                     self.buf.put(chunk.as_ref());
-                }
-                if let Some(line) = try!(self.decoder.decode(&mut self.buf)) {
-                    return Ok(Async::Ready(Some(line)));
                 } else {
+                    println!("Not enough buffer space left {}, {}", self.buf.remaining_mut(), chunk.len());
+                }
+                if let Some(record) = try!(self.decoder.decode(&mut self.buf)) {
+                    return Ok(Async::Ready(Some(record)));
+                } else {
+                    println!("Record is not ready.");
                     return Ok(Async::NotReady);
                 }
             }
