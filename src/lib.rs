@@ -1,5 +1,7 @@
 extern crate bytes;
-#[macro_use] extern crate failure;
+#[macro_use]
+extern crate failure;
+#[macro_use]
 extern crate futures;
 extern crate hyper;
 extern crate protobuf;

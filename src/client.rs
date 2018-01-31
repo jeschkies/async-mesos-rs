@@ -1,5 +1,6 @@
 extern crate bytes;
 extern crate futures;
+extern crate protobuf;
 extern crate spectral;
 extern crate tokio_core;
 
@@ -9,13 +10,14 @@ use failure;
 use failure::Error;
 use hyper;
 use futures::{Async, Poll, Stream};
+use protobuf::core::parse_from_bytes;
+use scheduler;
 
 use std::str;
 
 #[derive(Fail, Debug)]
 pub enum DecoderError {
-    #[fail(display = "Could not decode RecordIO frame.")]
-    Frame,
+    #[fail(display = "Could not decode RecordIO frame.")] Frame,
 }
 
 pub trait Decoder {
@@ -85,21 +87,15 @@ impl Decoder for RecordIoDecoder {
     type Item = Bytes;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Bytes>, Error> {
-        println!("Start decoding");
         while buf.len() > 0 {
             match self.state {
                 RecordIoDecoderState::TrimWhitespaces => {
-                    println!("Trim whitespaces...");
                     self.state = self.trim_whitespaces(buf);
-                    println!("Trimmed whitespaces");
                 }
                 RecordIoDecoderState::ReadLength => {
-                    println!("Decode length");
                     self.state = self.decode_length(buf)?;
-                    println!("Decoded length");
                 }
                 RecordIoDecoderState::ReadRecord { len } => {
-                    println!("Get record of length {}", len);
                     let (new_state, record) = self.decode_record(len, buf);
                     self.state = new_state;
                     return Ok(record);
@@ -142,19 +138,20 @@ impl Stream for RecordIoConnection {
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         match self.body.poll() {
             Ok(Async::Ready(Some(chunk))) => {
-                println!("Got chunk");
                 if chunk.len() <= self.buf.remaining_mut() {
-                    println!("put chunk into buffer");
                     // Potential deadlock. If we cannot parse and the buffer is
                     // full we should give an error.
                     self.buf.put(chunk.as_ref());
                 } else {
-                    println!("Not enough buffer space left {}, {}", self.buf.remaining_mut(), chunk.len());
+                    println!(
+                        "Not enough buffer space left {}, {}",
+                        self.buf.remaining_mut(),
+                        chunk.len()
+                    );
                 }
                 if let Some(record) = try!(self.decoder.decode(&mut self.buf)) {
                     return Ok(Async::Ready(Some(record)));
                 } else {
-                    println!("Record is not ready.");
                     return Ok(Async::NotReady);
                 }
             }
@@ -165,6 +162,31 @@ impl Stream for RecordIoConnection {
     }
 }
 
+pub struct Events {
+    records: RecordIoConnection,
+}
+
+impl Events {
+    pub fn new(body: hyper::Body) -> Self {
+        Self {
+            records: RecordIoConnection::new(body),
+        }
+    }
+}
+
+impl Stream for Events {
+    type Item = scheduler::Event;
+    type Error = failure::Error;
+
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        if let Some(record) = try_ready!(self.records.poll()) {
+            let event: scheduler::Event = parse_from_bytes(&record)?;
+            Ok(Async::Ready(Some(event)))
+        } else {
+            Ok(Async::NotReady)
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -251,10 +273,7 @@ mod tests {
 
         let first = decoder.decode(&mut buffer);
         let expected = Bytes::from("{\"type\": \"SUBSCRIBED\",\"subscribed\": {\"framework_id\": {\"value\":\"12220-3440-12532-2345\"},\"heartbeat_interval_seconds\":15.0}");
-        assert_that(&first)
-            .is_ok()
-            .is_some()
-            .is_equal_to(expected);
+        assert_that(&first).is_ok().is_some().is_equal_to(expected);
 
         let second = decoder.decode(&mut buffer);
         assert_that(&second)
