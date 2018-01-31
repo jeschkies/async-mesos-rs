@@ -17,8 +17,9 @@ mod integration {
     use async_mesos::client::{Decoder, RecordIoConnection};
     use async_mesos::mesos;
     use async_mesos::scheduler;
-    use protobuf::core::Message;
+    use protobuf::core::{parse_from_bytes, Message};
     use protobuf::repeated::RepeatedField;
+    use protobuf::stream::CodedInputStream;
     use spectral::prelude::*;
     use std::str;
     use tokio_core::reactor::Core;
@@ -56,8 +57,8 @@ mod integration {
 
         let records: RecordIoConnection = core.run(work).unwrap();
         let w = records.for_each(|bytes| {
-            println!("Got first record");
-            println!("{}", str::from_utf8(&bytes)?);
+            let event: scheduler::Event = parse_from_bytes(&bytes)?;
+            println!("Got event {:?}", event.get_field_type());
             Ok(())
         });
 
