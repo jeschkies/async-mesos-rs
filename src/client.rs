@@ -185,6 +185,12 @@ impl Stream for Events {
     }
 }
 
+pub struct Client {
+    pub framework_id: str,
+    stream_id: str,
+    pub events: Events,
+}
+
 #[cfg(test)]
 mod tests {
 
