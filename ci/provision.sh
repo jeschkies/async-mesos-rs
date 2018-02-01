@@ -15,5 +15,5 @@ service mesos-master start
 service mesos-slave start
 
 # Curl Mesos master to see if it's up and running.
-MESOS_MASTER=$(mesos-resolve "$(cat /etc/mesos/zk)")
+MESOS_MASTER=$(mesos-resolve --timeout=30 "$(cat /etc/mesos/zk)")
 curl -f "http://$MESOS_MASTER" > /dev/null
