@@ -11,9 +11,8 @@ apt-get -y update
 
 apt-get -y install mesos=1.4.0-2.0.1 zookeeperd
 
-service zookeeper restart
-service mesos-master restart
-service mesos-slave restart
+service mesos-master start
+service mesos-slave start
 
 # Curl Mesos master to see if it's up and running.
 MESOS_MASTER=$(mesos-resolve "$(cat /etc/mesos/zk)")
