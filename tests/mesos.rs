@@ -33,7 +33,7 @@ mod integration {
         let mut framework_info = mesos::FrameworkInfo::new();
         framework_info.set_user(String::from("foo"));
         framework_info.set_name(String::from("Example FOO Framework"));
-        framework_info.set_roles(RepeatedField::from_vec(vec![String::from("test")]));
+        //framework_info.set_roles(RepeatedField::from_vec(vec![String::from("test")]));
         let mut call = scheduler::Call::new();
         let mut subscribe = scheduler::Call_Subscribe::new();
         subscribe.set_framework_info(framework_info);
@@ -46,9 +46,9 @@ mod integration {
             .unwrap();
         let mut request = Request::new(Method::Post, uri);
         let protobuf_media_type = "application/x-protobuf".parse::<mime::Mime>().unwrap();
-        request
-            .headers_mut()
-            .set(Accept(vec![qitem(protobuf_media_type.clone())]));
+        request.headers_mut().set(Accept(vec![
+            qitem(protobuf_media_type.clone()),
+        ]));
         request.headers_mut().set(ContentType(protobuf_media_type));
         request.set_body(call.write_to_bytes().unwrap());
 
@@ -59,11 +59,12 @@ mod integration {
         });
 
         let events: Events = core.run(work).unwrap();
-        let w = events.for_each(|event| {
-            println!("Got event {:?}", event.get_field_type());
-            Ok(())
-        });
+        let w = events.map(|event| event.get_field_type()).take(2).collect();
 
-        core.run(w).unwrap();
+        let result = core.run(w).unwrap();
+        assert_that(&result).is_equal_to(vec![
+            scheduler::Event_Type::SUBSCRIBED,
+            scheduler::Event_Type::HEARTBEAT,
+        ]);
     }
 }

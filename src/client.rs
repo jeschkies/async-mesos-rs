@@ -17,7 +17,8 @@ use std::str;
 
 #[derive(Fail, Debug)]
 pub enum DecoderError {
-    #[fail(display = "Could not decode RecordIO frame.")] Frame,
+    #[fail(display = "Could not decode RecordIO frame.")]
+    Frame,
 }
 
 pub trait Decoder {
@@ -39,9 +40,7 @@ pub struct RecordIoDecoder {
 }
 impl RecordIoDecoder {
     pub fn new() -> Self {
-        Self {
-            state: RecordIoDecoderState::TrimWhitespaces,
-        }
+        Self { state: RecordIoDecoderState::TrimWhitespaces }
     }
 
     fn is_whitespace(&self, b: &u8) -> bool {
@@ -168,9 +167,7 @@ pub struct Events {
 
 impl Events {
     pub fn new(body: hyper::Body) -> Self {
-        Self {
-            records: RecordIoConnection::new(body),
-        }
+        Self { records: RecordIoConnection::new(body) }
     }
 }
 
@@ -214,9 +211,9 @@ mod tests {
         let mut decoder = client::RecordIoDecoder::new();
 
         let state = decoder.decode_length(&mut buffer);
-        assert_that(&state)
-            .is_ok()
-            .is_equal_to(client::RecordIoDecoderState::ReadRecord { len: 121 });
+        assert_that(&state).is_ok().is_equal_to(
+            client::RecordIoDecoderState::ReadRecord { len: 121 },
+        );
     }
 
     #[test]
@@ -247,9 +244,9 @@ mod tests {
 
         let (state, record) = decoder.decode_record(20, &mut buffer);
         assert_eq!(state, client::RecordIoDecoderState::TrimWhitespaces);
-        assert_that(&record)
-            .is_some()
-            .is_equal_to(Bytes::from("{\"type\":\"HEARTBEAT\"}"));
+        assert_that(&record).is_some().is_equal_to(Bytes::from(
+            "{\"type\":\"HEARTBEAT\"}",
+        ));
     }
 
     #[test]
@@ -272,14 +269,17 @@ mod tests {
         let mut decoder = client::RecordIoDecoder::new();
 
         let first = decoder.decode(&mut buffer);
-        let expected = Bytes::from("{\"type\": \"SUBSCRIBED\",\"subscribed\": {\"framework_id\": {\"value\":\"12220-3440-12532-2345\"},\"heartbeat_interval_seconds\":15.0}");
+        let expected = Bytes::from(
+            "{\"type\": \"SUBSCRIBED\",\"subscribed\": {\"framework_id\": {\"value\":\"12220-3440-12532-2345\"},\"heartbeat_interval_seconds\":15.0}",
+        );
         assert_that(&first).is_ok().is_some().is_equal_to(expected);
 
         let second = decoder.decode(&mut buffer);
-        assert_that(&second)
-            .is_ok()
-            .is_some()
-            .is_equal_to(Bytes::from("{\"type\":\"HEARTBEAT\"}"));
+        assert_that(&second).is_ok().is_some().is_equal_to(
+            Bytes::from(
+                "{\"type\":\"HEARTBEAT\"}",
+            ),
+        );
 
         let third = decoder.decode(&mut buffer);
         assert_that(&third).is_ok().is_none();
