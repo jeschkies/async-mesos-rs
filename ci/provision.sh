@@ -15,7 +15,6 @@ service zookeeper restart
 service mesos-master restart
 service mesos-slave restart
 
-# Curl Mesos master.
-MESOS_MASTER=$(mesos-resolve `cat /etc/mesos/zk`)
-echo $MESOS_MASTER
-curl http://localhost:5050
+# Curl Mesos master to see if it's up and running.
+MESOS_MASTER=$(mesos-resolve "$(cat /etc/mesos/zk)")
+curl -f "http://$MESOS_MASTER" > /dev/null
