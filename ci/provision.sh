@@ -16,4 +16,6 @@ service mesos-master restart
 service mesos-slave restart
 
 # Curl Mesos master.
-curl localhost:5050
+MESOS_MASTER=$(mesos-resolve `cat /etc/mesos/zk`)
+echo $MESOS_MASTER
+curl http://localhost:5050
