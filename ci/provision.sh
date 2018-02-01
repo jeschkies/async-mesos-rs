@@ -10,3 +10,9 @@ echo "deb http://repos.mesosphere.io/${DISTRO} ${CODENAME} main" | \
 apt-get -y update
 
 apt-get -y install mesos=1.4.0-2.0.1 zookeeperd
+
+service zookeeper restart
+service mesos-master restart
+service mesos-slave restart
+
+curl localhost:5050
