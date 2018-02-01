@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -x -e -o pipefail
 
 apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv E56151BF
 DISTRO=$(lsb_release -is | tr '[:upper:]' '[:lower:]')
@@ -15,4 +15,5 @@ service zookeeper restart
 service mesos-master restart
 service mesos-slave restart
 
+# Curl Mesos master.
 curl localhost:5050
