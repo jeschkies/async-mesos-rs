@@ -16,9 +16,6 @@ mod integration {
     use async_mesos::client::{Client, Events};
     use async_mesos::mesos;
     use async_mesos::scheduler;
-    use protobuf::core::{parse_from_bytes, Message};
-    use protobuf::repeated::RepeatedField;
-    use protobuf::stream::CodedInputStream;
     use spectral::prelude::*;
     use tokio_core::reactor::Core;
 
