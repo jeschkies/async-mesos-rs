@@ -201,7 +201,7 @@ pub struct Client {
 header! { (MesosStreamIdHeader, "Mesos-Stream-Id") => [String] }
 
 impl Client {
-    pub fn connect(handle: &Handle, uri: hyper::Uri, framework_info: mesos::FrameworkInfo) -> Self {
+    pub fn connect(handle: &Handle, uri: hyper::Uri, framework_info: mesos::FrameworkInfo) -> Box<Future<Item = Self, Error = failure::Error>>{
         // Mesos subscribe essage
         let mut call = scheduler::Call::new();
         let mut subscribe = scheduler::Call_Subscribe::new();
@@ -226,26 +226,30 @@ impl Client {
 
         // Call Mesos
         let http_client = hyper::Client::new(&handle);
-        http_client
+        let s = http_client
             .request(request)
+            .map_err(failure::Error::from)
             .and_then(|res: hyper::Response| {
                 println!("Response status: {}", res.status());
 
                 // TODO: Handle error when header is not present.
-                let stream_id: MesosStreamIdHeader = *res.headers().get().unwrap();
+                //let stream_id: &MesosStreamIdHeader = res.headers().get().unwrap();
                 let events = Events::new(res.body());
-                events.into_future()//.map(|pair|{(pair.0, pair.1, stream_id)})
+                events
+                    .into_future()
+                    .map_err(|(err, _)| failure::Error::from(err))
             })
-            .map(|(subscribed_event, events)| {
+            .map(|(subscribed_event, events)| -> Self {
                 // TODO: Assert that event is SUBSCRIBED.
-                let framework_id = subscribed_event.get_subscribed().get_framework_id();
+                let framework_id = subscribed_event.unwrap().get_subscribed().get_framework_id().clone();
 
                 Self {
-                    framework_id: framework_id.get_value(),
-                    stream_id: stream_id,
+                    framework_id: String::from(framework_id.get_value()),
+                    stream_id: String::from("fake"),
                     events: events,
                 }
-            })
+            });
+        Box::new(s)
     }
 }
 
