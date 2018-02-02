@@ -27,38 +27,20 @@ mod integration {
     fn connect() {
         let mut core = Core::new().unwrap();
         let handle = core.handle();
-        let client = Client::new(&handle);
 
         // Mesos message
         let mut framework_info = mesos::FrameworkInfo::new();
         framework_info.set_user(String::from("foo"));
         framework_info.set_name(String::from("Example FOO Framework"));
         //framework_info.set_roles(RepeatedField::from_vec(vec![String::from("test")]));
-        let mut call = scheduler::Call::new();
-        let mut subscribe = scheduler::Call_Subscribe::new();
-        subscribe.set_framework_info(framework_info);
-        call.set_subscribe(subscribe);
-        call.set_field_type(scheduler::Call_Type::SUBSCRIBE);
 
-        // Build request
+        // Create client
         let uri = "http://localhost:5050/api/v1/scheduler"
             .parse::<Uri>()
             .unwrap();
-        let mut request = Request::new(Method::Post, uri);
-        let protobuf_media_type = "application/x-protobuf".parse::<mime::Mime>().unwrap();
-        request.headers_mut().set(Accept(vec![
-            qitem(protobuf_media_type.clone()),
-        ]));
-        request.headers_mut().set(ContentType(protobuf_media_type));
-        request.set_body(call.write_to_bytes().unwrap());
+        let client = Client.connect(uri, &handle);
 
-        // Fire off request
-        let work = client.request(request).map(|res| {
-            println!("Response status: {}", res.status());
-            return Events::new(res.body());
-        });
-
-        let events: Events = core.run(work).unwrap();
+        let events: Events = core.run(client).unwrap().events;
         let w = events.map(|event| event.get_field_type()).take(2).collect();
 
         let result = core.run(w).unwrap();

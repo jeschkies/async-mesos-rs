@@ -8,17 +8,18 @@ use bytes::{Bytes, BytesMut};
 use bytes::buf::BufMut;
 use failure;
 use failure::Error;
-use hyper;
 use futures::{Async, Poll, Stream};
+use hyper;
+use mime;
 use protobuf::core::parse_from_bytes;
 use scheduler;
+use tokio::reactor::Handle;
 
 use std::str;
 
 #[derive(Fail, Debug)]
 pub enum DecoderError {
-    #[fail(display = "Could not decode RecordIO frame.")]
-    Frame,
+    #[fail(display = "Could not decode RecordIO frame.")] Frame,
 }
 
 pub trait Decoder {
@@ -40,7 +41,9 @@ pub struct RecordIoDecoder {
 }
 impl RecordIoDecoder {
     pub fn new() -> Self {
-        Self { state: RecordIoDecoderState::TrimWhitespaces }
+        Self {
+            state: RecordIoDecoderState::TrimWhitespaces,
+        }
     }
 
     fn is_whitespace(&self, b: &u8) -> bool {
@@ -167,7 +170,9 @@ pub struct Events {
 
 impl Events {
     pub fn new(body: hyper::Body) -> Self {
-        Self { records: RecordIoConnection::new(body) }
+        Self {
+            records: RecordIoConnection::new(body),
+        }
     }
 }
 
@@ -189,6 +194,50 @@ pub struct Client {
     pub framework_id: str,
     stream_id: str,
     pub events: Events,
+}
+
+impl Client {
+    pub fn connect(uri: hyper::Uri, handle: &Handle) -> Self {
+        // Mesos subscribe essage
+        let mut call = scheduler::Call::new();
+        let mut subscribe = scheduler::Call_Subscribe::new();
+        subscribe.set_framework_info(framework_info);
+        call.set_subscribe(subscribe);
+        call.set_field_type(scheduler::Call_Type::SUBSCRIBE);
+
+        // Build request
+        let mut request = hyper::Request::new(hyper::Method::Post, uri);
+        let protobuf_media_type = "application/x-protobuf".parse::<mime::Mime>()?;
+        request.headers_mut().set(hyper::header::Accept(vec![
+            hyper::header::qitem(protobuf_media_type.clone()),
+        ]));
+        request
+            .headers_mut()
+            .set(hyper::header::ContentType(protobuf_media_type));
+        let body = call.write_to_bytes()?;
+        request.set_body(body);
+
+        // Call Mesos
+        let http_client = Client::new(&handle);
+        http_client
+            .request(request)
+            .and_then(|res| {
+                println!("Response status: {}", res.status());
+
+                let events = Events::new(res.body());
+                events.into_future()
+            })
+            .map(|(subscribed_event, events)| {
+                // TODO: Assert that event is SUBSCRIBED.
+                let framework_id = subscribed_event.get_subscribed().get_framework_id();
+
+                Self {
+                    framework_id: framework_id.get_value(),
+                    stream_id: res.header.MesosStreamIdHeaderName, // TODO
+                    event: events,
+                }
+            })
+    }
 }
 
 #[cfg(test)]
@@ -217,9 +266,9 @@ mod tests {
         let mut decoder = client::RecordIoDecoder::new();
 
         let state = decoder.decode_length(&mut buffer);
-        assert_that(&state).is_ok().is_equal_to(
-            client::RecordIoDecoderState::ReadRecord { len: 121 },
-        );
+        assert_that(&state)
+            .is_ok()
+            .is_equal_to(client::RecordIoDecoderState::ReadRecord { len: 121 });
     }
 
     #[test]
@@ -250,9 +299,9 @@ mod tests {
 
         let (state, record) = decoder.decode_record(20, &mut buffer);
         assert_eq!(state, client::RecordIoDecoderState::TrimWhitespaces);
-        assert_that(&record).is_some().is_equal_to(Bytes::from(
-            "{\"type\":\"HEARTBEAT\"}",
-        ));
+        assert_that(&record)
+            .is_some()
+            .is_equal_to(Bytes::from("{\"type\":\"HEARTBEAT\"}"));
     }
 
     #[test]
@@ -281,11 +330,10 @@ mod tests {
         assert_that(&first).is_ok().is_some().is_equal_to(expected);
 
         let second = decoder.decode(&mut buffer);
-        assert_that(&second).is_ok().is_some().is_equal_to(
-            Bytes::from(
-                "{\"type\":\"HEARTBEAT\"}",
-            ),
-        );
+        assert_that(&second)
+            .is_ok()
+            .is_some()
+            .is_equal_to(Bytes::from("{\"type\":\"HEARTBEAT\"}"));
 
         let third = decoder.decode(&mut buffer);
         assert_that(&third).is_ok().is_none();
