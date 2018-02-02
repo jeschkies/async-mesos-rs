@@ -8,7 +8,7 @@ use bytes::{Bytes, BytesMut};
 use bytes::buf::BufMut;
 use failure;
 use failure::Error;
-use futures::{Async, Future, Poll, Stream};
+use futures::{future, Async, Future, Poll, Stream};
 use futures::stream::StreamFuture;
 use hyper;
 use mesos;
@@ -229,23 +229,32 @@ impl Client {
         let s = http_client
             .request(request)
             .map_err(failure::Error::from)
-            .and_then(|res: hyper::Response| {
+            .and_then(move |res: hyper::Response| {
                 println!("Response status: {}", res.status());
 
-                // TODO: Handle error when header is not present.
-                //let stream_id: &MesosStreamIdHeader = res.headers().get().unwrap();
+                /*
+                let stream_id = if let Some(header) = res.headers().get::<MesosStreamIdHeader>()
+                {
+                    header.clone()
+                } else {
+                    // TODO: Use different error type.
+                    return future::err(format_err!("Missing Mesos-Stream-Id header."))
+                };
+                */
+                let stream_id = String::from("fake");
                 let events = Events::new(res.body());
                 events
                     .into_future()
                     .map_err(|(err, _)| failure::Error::from(err))
+                    .map(|(event, stream)| (stream_id, event, stream))
             })
-            .map(|(subscribed_event, events)| -> Self {
+            .map(|(stream_id, subscribed_event, events)| -> Self {
                 // TODO: Assert that event is SUBSCRIBED.
                 let framework_id = subscribed_event.unwrap().get_subscribed().get_framework_id().clone();
 
                 Self {
                     framework_id: String::from(framework_id.get_value()),
-                    stream_id: String::from("fake"),
+                    stream_id: stream_id,
                     events: events,
                 }
             });

@@ -9,12 +9,11 @@ extern crate tokio_core;
 #[cfg(test)]
 mod integration {
 
-    use futures::{Future, Stream};
-    use hyper::{Client, Method, Request, Uri};
-    use hyper::header::{qitem, Accept, ContentType};
+    use futures::Stream;
+    use hyper::Uri;
     use mime;
     use async_mesos::client;
-    use async_mesos::client::{Decoder, Events};
+    use async_mesos::client::{Client, Events};
     use async_mesos::mesos;
     use async_mesos::scheduler;
     use protobuf::core::{parse_from_bytes, Message};
@@ -38,14 +37,13 @@ mod integration {
         let uri = "http://localhost:5050/api/v1/scheduler"
             .parse::<Uri>()
             .unwrap();
-        let client = Client.connect(&handle, uri, framework_info);
+        let client = Client::connect(&handle, uri, framework_info);
 
         let events: Events = core.run(client).unwrap().events;
-        let w = events.map(|event| event.get_field_type()).take(2).collect();
+        let w = events.map(|event| event.get_field_type()).take(1).collect();
 
         let result = core.run(w).unwrap();
         assert_that(&result).is_equal_to(vec![
-            scheduler::Event_Type::SUBSCRIBED,
             scheduler::Event_Type::HEARTBEAT,
         ]);
     }
