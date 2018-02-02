@@ -8,12 +8,14 @@ use bytes::{Bytes, BytesMut};
 use bytes::buf::BufMut;
 use failure;
 use failure::Error;
-use futures::{Async, Poll, Stream};
+use futures::{Async, Future, Poll, Stream};
+use futures::stream::StreamFuture;
 use hyper;
+use mesos;
 use mime;
-use protobuf::core::parse_from_bytes;
+use protobuf::core::{parse_from_bytes, Message};
 use scheduler;
-use tokio::reactor::Handle;
+use tokio_core::reactor::Handle;
 
 use std::str;
 
@@ -191,13 +193,15 @@ impl Stream for Events {
 }
 
 pub struct Client {
-    pub framework_id: str,
-    stream_id: str,
+    pub framework_id: String,
+    stream_id: String,
     pub events: Events,
 }
 
+header! { (MesosStreamIdHeader, "Mesos-Stream-Id") => [String] }
+
 impl Client {
-    pub fn connect(uri: hyper::Uri, handle: &Handle) -> Self {
+    pub fn connect(handle: &Handle, uri: hyper::Uri, framework_info: mesos::FrameworkInfo) -> Self {
         // Mesos subscribe essage
         let mut call = scheduler::Call::new();
         let mut subscribe = scheduler::Call_Subscribe::new();
@@ -207,25 +211,30 @@ impl Client {
 
         // Build request
         let mut request = hyper::Request::new(hyper::Method::Post, uri);
-        let protobuf_media_type = "application/x-protobuf".parse::<mime::Mime>()?;
+        // TODO: move out of body
+        let protobuf_media_type = "application/x-protobuf".parse::<mime::Mime>().unwrap();
         request.headers_mut().set(hyper::header::Accept(vec![
             hyper::header::qitem(protobuf_media_type.clone()),
         ]));
         request
             .headers_mut()
             .set(hyper::header::ContentType(protobuf_media_type));
-        let body = call.write_to_bytes()?;
+
+        // TODO: Handle error
+        let body = call.write_to_bytes().unwrap();
         request.set_body(body);
 
         // Call Mesos
-        let http_client = Client::new(&handle);
+        let http_client = hyper::Client::new(&handle);
         http_client
             .request(request)
-            .and_then(|res| {
+            .and_then(|res: hyper::Response| {
                 println!("Response status: {}", res.status());
 
+                // TODO: Handle error when header is not present.
+                let stream_id: MesosStreamIdHeader = *res.headers().get().unwrap();
                 let events = Events::new(res.body());
-                events.into_future()
+                events.into_future()//.map(|pair|{(pair.0, pair.1, stream_id)})
             })
             .map(|(subscribed_event, events)| {
                 // TODO: Assert that event is SUBSCRIBED.
@@ -233,8 +242,8 @@ impl Client {
 
                 Self {
                     framework_id: framework_id.get_value(),
-                    stream_id: res.header.MesosStreamIdHeaderName, // TODO
-                    event: events,
+                    stream_id: stream_id,
+                    events: events,
                 }
             })
     }

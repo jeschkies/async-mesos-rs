@@ -38,7 +38,7 @@ mod integration {
         let uri = "http://localhost:5050/api/v1/scheduler"
             .parse::<Uri>()
             .unwrap();
-        let client = Client.connect(uri, &handle);
+        let client = Client.connect(&handle, uri, framework_info);
 
         let events: Events = core.run(client).unwrap().events;
         let w = events.map(|event| event.get_field_type()).take(2).collect();
