@@ -225,8 +225,8 @@ impl Client {
                 });
                 events.join(stream_id)
             })
-            .map(|((subscribed_event, events), stream_id)| {
-                Self::client_from(subscribed_event, events, stream_id)
+            .and_then(|((subscribed_event, events), stream_id)| {
+                future::result(Self::client_from(subscribed_event, events, stream_id))
             });
         Box::new(s)
     }
@@ -240,6 +240,7 @@ impl Client {
         call
     }
 
+    /// Builds a Hyper Request object for given URI and Mesos scheduler call.
     pub fn request_for(uri: hyper::Uri, call: scheduler::Call) -> hyper::Request {
         let mut request = hyper::Request::new(hyper::Method::Post, uri);
         // TODO: construct media type once
@@ -257,11 +258,12 @@ impl Client {
         request
     }
 
+    /// Builds a new Mesos client from subcribe event, remaining Mesos events and Mesos streamd id.
     fn client_from(
         subscribed_event: Option<scheduler::Event>,
         events: Events,
         stream_id: String,
-    ) -> Self {
+    ) -> Result<Self, failure::Error> {
         // TODO: Assert that event is SUBSCRIBED.
         let framework_id = subscribed_event
             .unwrap()
@@ -269,11 +271,11 @@ impl Client {
             .get_framework_id()
             .clone();
 
-        Self {
+        Ok(Self {
             framework_id: String::from(framework_id.get_value()),
             stream_id: stream_id,
             events: events,
-        }
+        })
     }
 }
 
