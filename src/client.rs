@@ -16,7 +16,7 @@ use protobuf::core::{parse_from_bytes, Message};
 use scheduler;
 use tokio_core::reactor::Handle;
 
-use std::str;
+use std::{fmt, str};
 
 #[derive(Fail, Debug)]
 pub enum DecoderError {
@@ -192,6 +192,12 @@ pub struct Client {
     pub framework_id: String,
     stream_id: String,
     pub events: Events,
+}
+
+impl fmt::Debug for Client {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Client {{ framework_id: {}, stream_id: {} }}", self.framework_id, self.stream_id)
+    }
 }
 
 header! { (MesosStreamIdHeader, "Mesos-Stream-Id") => [String] }
@@ -388,6 +394,6 @@ mod tests {
         let events = Events::new(hyper::Body::empty());
         let result = Client::client_from(None, events, String::from("some stream id"));
 
-        assert_that(&result).is_ok();
+        assert_that(&result).is_err();
     }
 }
