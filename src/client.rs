@@ -56,7 +56,7 @@ impl RecordIoDecoder {
         RecordIoDecoderState::ReadLength
     }
 
-    pub fn decode_length(&mut self, buf: &mut BytesMut) -> Result<RecordIoDecoderState, Error> {
+    pub fn decode_length(&mut self, buf: &mut BytesMut) -> Result<RecordIoDecoderState, failure::Error> {
         if let Some(i) = buf.iter().position(|&b| b == b'\n') {
             let length = buf.split_to(i);
             buf.split_to(1);
@@ -263,19 +263,22 @@ impl Client {
         subscribed_event: Option<scheduler::Event>,
         events: Events,
         stream_id: String,
-    ) -> Result<Self, failure::Error> {
-        // TODO: Assert that event is SUBSCRIBED.
-        let framework_id = subscribed_event
-            .unwrap()
-            .get_subscribed()
-            .get_framework_id()
-            .clone();
+    ) -> Result<Self, Error> {
+        if let Some(subscribed) = subscribed_event {
+            // TODO: Assert that event is SUBSCRIBED.
+            let framework_id = subscribed
+                .get_subscribed()
+                .get_framework_id()
+                .clone();
 
-        Ok(Self {
-            framework_id: String::from(framework_id.get_value()),
-            stream_id: stream_id,
-            events: events,
-        })
+            Ok(Self {
+                framework_id: String::from(framework_id.get_value()),
+                stream_id: stream_id,
+                events: events,
+            })
+        } else {
+            Err(format_err!("Did not receive Mesos SUBSCRIBED event."))
+        }
     }
 }
 
@@ -284,7 +287,8 @@ mod tests {
 
     use bytes::{BufMut, Bytes, BytesMut};
     use client;
-    use client::{Decoder, RecordIoDecoderState};
+    use client::{Client, Decoder, Events, RecordIoDecoderState};
+    use hyper;
     use spectral::prelude::*;
 
     #[test]
@@ -377,5 +381,13 @@ mod tests {
 
         let third = decoder.decode(&mut buffer);
         assert_that(&third).is_ok().is_none();
+    }
+
+    #[test]
+    fn no_subscribe_event() {
+        let events = Events::new(hyper::Body::empty());
+        let result = Client::client_from(None, events, String::from("some stream id"));
+
+        assert_that(&result).is_ok();
     }
 }
