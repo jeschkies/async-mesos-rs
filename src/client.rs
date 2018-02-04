@@ -1,6 +1,5 @@
 extern crate bytes;
 extern crate futures;
-extern crate protobuf;
 extern crate spectral;
 extern crate tokio_core;
 
@@ -232,23 +231,19 @@ impl Client {
             .and_then(move |res: hyper::Response| {
                 println!("Response status: {}", res.status());
 
-                /*
                 let stream_id = if let Some(header) = res.headers().get::<MesosStreamIdHeader>()
                 {
-                    header.clone()
+                    future::ok(header.0.clone())
                 } else {
                     // TODO: Use different error type.
-                    return future::err(format_err!("Missing Mesos-Stream-Id header."))
+                    future::err(format_err!("Missing Mesos-Stream-Id header."))
                 };
-                */
-                let stream_id = String::from("fake");
-                let events = Events::new(res.body());
-                events
+                let events = Events::new(res.body())
                     .into_future()
-                    .map_err(|(err, _)| failure::Error::from(err))
-                    .map(|(event, stream)| (stream_id, event, stream))
+                    .map_err(|(err, _)| failure::Error::from(err));
+                events.join(stream_id)
             })
-            .map(|(stream_id, subscribed_event, events)| -> Self {
+            .map(|((subscribed_event, events), stream_id)| -> Self {
                 // TODO: Assert that event is SUBSCRIBED.
                 let framework_id = subscribed_event.unwrap().get_subscribed().get_framework_id().clone();
 
