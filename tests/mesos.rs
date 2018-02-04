@@ -40,8 +40,6 @@ mod integration {
         let w = events.map(|event| event.get_field_type()).take(1).collect();
 
         let result = core.run(w).unwrap();
-        assert_that(&result).is_equal_to(vec![
-            scheduler::Event_Type::HEARTBEAT,
-        ]);
+        assert_that(&result).is_equal_to(vec![scheduler::Event_Type::HEARTBEAT]);
     }
 }
