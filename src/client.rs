@@ -266,22 +266,25 @@ impl Client {
 
     /// Builds a new Mesos client from subcribe event, remaining Mesos events and Mesos streamd id.
     fn client_from(
-        subscribed_event: Option<scheduler::Event>,
+        maybe_event: Option<scheduler::Event>,
         events: Events,
         stream_id: String,
     ) -> Result<Self, Error> {
-        if let Some(subscribed) = subscribed_event {
-            // TODO: Assert that event is SUBSCRIBED.
-            let framework_id = subscribed
-                .get_subscribed()
-                .get_framework_id()
-                .clone();
+        if let Some(event) = maybe_event {
+            if event.has_subscribed() {
+                let framework_id = event
+                    .get_subscribed()
+                    .get_framework_id()
+                    .clone();
 
-            Ok(Self {
-                framework_id: String::from(framework_id.get_value()),
-                stream_id: stream_id,
-                events: events,
-            })
+                Ok(Self {
+                    framework_id: String::from(framework_id.get_value()),
+                    stream_id: stream_id,
+                    events: events,
+                })
+            } else {
+                Err(format_err!("Mesos {:?} event was not a SUBSCRIBED event", event.get_field_type()))
+            }
         } else {
             Err(format_err!("Did not receive Mesos SUBSCRIBED event."))
         }
@@ -295,6 +298,7 @@ mod tests {
     use client;
     use client::{Client, Decoder, Events, RecordIoDecoderState};
     use hyper;
+    use scheduler;
     use spectral::prelude::*;
 
     #[test]
@@ -393,6 +397,16 @@ mod tests {
     fn no_subscribe_event() {
         let events = Events::new(hyper::Body::empty());
         let result = Client::client_from(None, events, String::from("some stream id"));
+
+        assert_that(&result).is_err();
+    }
+
+    #[test]
+    fn wrong_event() {
+        let events = Events::new(hyper::Body::empty());
+        let mut event = scheduler::Event::new();
+        event.set_field_type(scheduler::Event_Type::HEARTBEAT);
+        let result = Client::client_from(Some(event), events, String::from("some stream id"));
 
         assert_that(&result).is_err();
     }
