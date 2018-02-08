@@ -8,7 +8,6 @@ use bytes::buf::BufMut;
 use failure;
 use failure::Error;
 use futures::{future, Async, Future, Poll, Stream};
-use futures::stream::StreamFuture;
 use hyper;
 use mesos;
 use mime;
@@ -20,8 +19,7 @@ use std::{fmt, str};
 
 #[derive(Fail, Debug)]
 pub enum DecoderError {
-    #[fail(display = "Could not decode RecordIO frame.")]
-    Frame,
+    #[fail(display = "Could not decode RecordIO frame.")] Frame,
 }
 
 pub trait Decoder {
@@ -43,7 +41,9 @@ pub struct RecordIoDecoder {
 }
 impl RecordIoDecoder {
     pub fn new() -> Self {
-        Self { state: RecordIoDecoderState::TrimWhitespaces }
+        Self {
+            state: RecordIoDecoderState::TrimWhitespaces,
+        }
     }
 
     fn is_whitespace(&self, b: &u8) -> bool {
@@ -56,7 +56,10 @@ impl RecordIoDecoder {
         RecordIoDecoderState::ReadLength
     }
 
-    pub fn decode_length(&mut self, buf: &mut BytesMut) -> Result<RecordIoDecoderState, failure::Error> {
+    pub fn decode_length(
+        &mut self,
+        buf: &mut BytesMut,
+    ) -> Result<RecordIoDecoderState, failure::Error> {
         if let Some(i) = buf.iter().position(|&b| b == b'\n') {
             let length = buf.split_to(i);
             buf.split_to(1);
@@ -145,7 +148,7 @@ impl Stream for RecordIoConnection {
                     // full we should give an error.
                     self.buf.put(chunk.as_ref());
                 } else {
-                    println!(
+                    error!(
                         "Not enough buffer space left {}, {}",
                         self.buf.remaining_mut(),
                         chunk.len()
@@ -170,7 +173,9 @@ pub struct Events {
 
 impl Events {
     pub fn new(body: hyper::Body) -> Self {
-        Self { records: RecordIoConnection::new(body) }
+        Self {
+            records: RecordIoConnection::new(body),
+        }
     }
 }
 
@@ -196,11 +201,18 @@ pub struct Client {
 
 impl fmt::Debug for Client {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Client {{ framework_id: {}, stream_id: {} }}", self.framework_id, self.stream_id)
+        write!(
+            f,
+            "Client {{ framework_id: {}, stream_id: {} }}",
+            self.framework_id, self.stream_id
+        )
     }
 }
 
 header! { (MesosStreamIdHeader, "Mesos-Stream-Id") => [String] }
+lazy_static! {
+    static ref PROTOBUF_MEDIA_TYPE: mime::Mime = "application/x-protobuf".parse::<mime::Mime>().unwrap();
+}
 
 impl Client {
     pub fn connect(
@@ -218,7 +230,7 @@ impl Client {
             .request(request)
             .map_err(failure::Error::from)
             .and_then(move |res: hyper::Response| {
-                println!("Response status: {}", res.status());
+                debug!("Mesos subscribe response status: {}", res.status());
 
                 let stream_id = if let Some(header) = res.headers().get::<MesosStreamIdHeader>() {
                     future::ok(header.0.clone())
@@ -226,13 +238,13 @@ impl Client {
                     // TODO: Use different error type.
                     future::err(format_err!("Missing Mesos-Stream-Id header."))
                 };
-                let events = Events::new(res.body()).into_future().map_err(|(err, _)| {
-                    failure::Error::from(err)
-                });
+                let events = Events::new(res.body())
+                    .into_future()
+                    .map_err(|(err, _)| failure::Error::from(err));
                 events.join(stream_id)
             })
             .and_then(|((subscribed_event, events), stream_id)| {
-                future::result(Self::client_from(subscribed_event, events, stream_id))
+                future::result(Self::new(subscribed_event, events, stream_id))
             });
         Box::new(s)
     }
@@ -249,14 +261,12 @@ impl Client {
     /// Builds a Hyper Request object for given URI and Mesos scheduler call.
     pub fn request_for(uri: hyper::Uri, call: scheduler::Call) -> hyper::Request {
         let mut request = hyper::Request::new(hyper::Method::Post, uri);
-        // TODO: construct media type once
-        let protobuf_media_type = "application/x-protobuf".parse::<mime::Mime>().unwrap();
-        request.headers_mut().set(hyper::header::Accept(
-            vec![hyper::header::qitem(protobuf_media_type.clone())],
-        ));
-        request.headers_mut().set(hyper::header::ContentType(
-            protobuf_media_type,
-        ));
+        request.headers_mut().set(hyper::header::Accept(vec![
+            hyper::header::qitem(PROTOBUF_MEDIA_TYPE.clone()),
+        ]));
+        request
+            .headers_mut()
+            .set(hyper::header::ContentType(PROTOBUF_MEDIA_TYPE.clone()));
 
         // TODO: Handle error
         let body = call.write_to_bytes().unwrap();
@@ -265,25 +275,25 @@ impl Client {
     }
 
     /// Builds a new Mesos client from subcribe event, remaining Mesos events and Mesos streamd id.
-    fn client_from(
+    fn new(
         maybe_event: Option<scheduler::Event>,
         events: Events,
         stream_id: String,
     ) -> Result<Self, Error> {
         if let Some(event) = maybe_event {
             if event.has_subscribed() {
-                let framework_id = event
-                    .get_subscribed()
-                    .get_framework_id()
-                    .clone();
+                let framework_id = event.get_subscribed().get_framework_id().clone();
 
                 Ok(Self {
-                    framework_id: String::from(framework_id.get_value()),
+                    framework_id: framework_id.get_value().into(),
                     stream_id: stream_id,
                     events: events,
                 })
             } else {
-                Err(format_err!("Mesos {:?} event was not a SUBSCRIBED event", event.get_field_type()))
+                Err(format_err!(
+                    "Mesos {:?} event was not a SUBSCRIBED event",
+                    event.get_field_type()
+                ))
             }
         } else {
             Err(format_err!("Did not receive Mesos SUBSCRIBED event."))
@@ -296,7 +306,7 @@ mod tests {
 
     use bytes::{BufMut, Bytes, BytesMut};
     use client;
-    use client::{Client, Decoder, Events, RecordIoDecoderState};
+    use client::{Client, Decoder, Events};
     use hyper;
     use scheduler;
     use spectral::prelude::*;
@@ -319,9 +329,9 @@ mod tests {
         let mut decoder = client::RecordIoDecoder::new();
 
         let state = decoder.decode_length(&mut buffer);
-        assert_that(&state).is_ok().is_equal_to(
-            client::RecordIoDecoderState::ReadRecord { len: 121 },
-        );
+        assert_that(&state)
+            .is_ok()
+            .is_equal_to(client::RecordIoDecoderState::ReadRecord { len: 121 });
     }
 
     #[test]
@@ -352,9 +362,9 @@ mod tests {
 
         let (state, record) = decoder.decode_record(20, &mut buffer);
         assert_eq!(state, client::RecordIoDecoderState::TrimWhitespaces);
-        assert_that(&record).is_some().is_equal_to(Bytes::from(
-            "{\"type\":\"HEARTBEAT\"}",
-        ));
+        assert_that(&record)
+            .is_some()
+            .is_equal_to(Bytes::from("{\"type\":\"HEARTBEAT\"}"));
     }
 
     #[test]
@@ -383,11 +393,10 @@ mod tests {
         assert_that(&first).is_ok().is_some().is_equal_to(expected);
 
         let second = decoder.decode(&mut buffer);
-        assert_that(&second).is_ok().is_some().is_equal_to(
-            Bytes::from(
-                "{\"type\":\"HEARTBEAT\"}",
-            ),
-        );
+        assert_that(&second)
+            .is_ok()
+            .is_some()
+            .is_equal_to(Bytes::from("{\"type\":\"HEARTBEAT\"}"));
 
         let third = decoder.decode(&mut buffer);
         assert_that(&third).is_ok().is_none();
@@ -396,7 +405,7 @@ mod tests {
     #[test]
     fn no_subscribe_event() {
         let events = Events::new(hyper::Body::empty());
-        let result = Client::client_from(None, events, String::from("some stream id"));
+        let result = Client::new(None, events, String::from("some stream id"));
 
         assert_that(&result).is_err();
     }
@@ -406,7 +415,7 @@ mod tests {
         let events = Events::new(hyper::Body::empty());
         let mut event = scheduler::Event::new();
         event.set_field_type(scheduler::Event_Type::HEARTBEAT);
-        let result = Client::client_from(Some(event), events, String::from("some stream id"));
+        let result = Client::new(Some(event), events, String::from("some stream id"));
 
         assert_that(&result).is_err();
     }

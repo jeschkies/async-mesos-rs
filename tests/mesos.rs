@@ -3,6 +3,7 @@ extern crate futures;
 extern crate hyper;
 extern crate mime;
 extern crate protobuf;
+extern crate simple_logger;
 extern crate spectral;
 extern crate tokio_core;
 
@@ -11,16 +12,17 @@ mod integration {
 
     use futures::Stream;
     use hyper::Uri;
-    use mime;
-    use async_mesos::client;
     use async_mesos::client::{Client, Events};
     use async_mesos::mesos;
     use async_mesos::scheduler;
+    use simple_logger;
     use spectral::prelude::*;
     use tokio_core::reactor::Core;
 
     #[test]
     fn connect() {
+        simple_logger::init().unwrap();
+
         let mut core = Core::new().unwrap();
         let handle = core.handle();
 
