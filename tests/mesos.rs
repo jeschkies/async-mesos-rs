@@ -1,6 +1,8 @@
 extern crate async_mesos;
 extern crate futures;
 extern crate hyper;
+#[macro_use]
+extern crate log;
 extern crate mime;
 extern crate protobuf;
 extern crate simple_logger;
@@ -38,11 +40,52 @@ mod integration {
             .unwrap();
         let client = Client::connect(&handle, uri, framework_info);
 
-        let work = client.into_stream().map(|client| client.events).flatten()
+        let work = client
+            .into_stream()
+            .map(|client| client.events)
+            .flatten()
             .map(|event| event.get_field_type())
-            .take(1).collect();
+            .take(1)
+            .collect();
 
         let result = core.run(work).unwrap();
         assert_that(&result).is_equal_to(vec![scheduler::Event_Type::HEARTBEAT]);
+    }
+
+    #[test]
+    fn task_launch() {
+        simple_logger::init().unwrap();
+
+        let mut core = Core::new().unwrap();
+        let handle = core.handle();
+
+        // Mesos message
+        let mut framework_info = mesos::FrameworkInfo::new();
+        framework_info.set_user(String::from("foo"));
+        framework_info.set_name(String::from("Example FOO Framework"));
+
+        // Create client
+        let uri = "http://localhost:5050/api/v1/scheduler"
+            .parse::<Uri>()
+            .unwrap();
+        let client = Client::connect(&handle, uri, framework_info);
+
+        let work = client
+            .into_stream()
+            .map(|client| client.events)
+            .flatten()
+            .for_each(|event| match event.get_field_type() {
+                scheduler::Event_Type::OFFERS => {
+                    info!("Received offer.");
+                    // client.accept() -> Future
+                    Ok(())
+                }
+                other => {
+                    debug!("Ignore event {:?}", other);
+                    Ok(())
+                }
+            });
+
+        core.run(work).unwrap();
     }
 }
