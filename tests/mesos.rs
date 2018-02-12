@@ -52,6 +52,10 @@ mod integration {
         assert_that(&result).is_equal_to(vec![scheduler::Event_Type::HEARTBEAT]);
     }
 
+    struct State {
+        framework_id: String,
+    }
+
     #[test]
     fn task_launch() {
         simple_logger::init().unwrap();
@@ -68,16 +72,23 @@ mod integration {
         let uri = "http://localhost:5050/api/v1/scheduler"
             .parse::<Uri>()
             .unwrap();
-        let client = Client::connect(&handle, uri, framework_info);
+        let future_client = Client::connect(&handle, uri, framework_info);
 
-        let work = client
+        let mut state = None;
+
+        // Process events and start and stop a simple task.
+        let work = future_client
             .into_stream()
-            .map(|client| client.events)
+            .map(|client| {
+                // TODO: We should capture a client session or something similar.
+                state = Some(State { framework_id: client.framework_id.clone() });
+                client.events
+            })
             .flatten()
             .for_each(|event| match event.get_field_type() {
                 scheduler::Event_Type::OFFERS => {
                     info!("Received offer.");
-                    // client.accept() -> Future
+                    // Client::accept(state.framework_id, ...) -> Future
                     Ok(())
                 }
                 other => {
