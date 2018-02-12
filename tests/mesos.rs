@@ -10,6 +10,7 @@ extern crate tokio_core;
 #[cfg(test)]
 mod integration {
 
+    use futures::Future;
     use futures::Stream;
     use hyper::Uri;
     use async_mesos::client::{Client, Events};
@@ -30,7 +31,6 @@ mod integration {
         let mut framework_info = mesos::FrameworkInfo::new();
         framework_info.set_user(String::from("foo"));
         framework_info.set_name(String::from("Example FOO Framework"));
-        //framework_info.set_roles(RepeatedField::from_vec(vec![String::from("test")]));
 
         // Create client
         let uri = "http://localhost:5050/api/v1/scheduler"
@@ -38,10 +38,11 @@ mod integration {
             .unwrap();
         let client = Client::connect(&handle, uri, framework_info);
 
-        let events: Events = core.run(client).unwrap().events;
-        let w = events.map(|event| event.get_field_type()).take(1).collect();
+        let work = client.into_stream().map(|client| client.events).flatten()
+            .map(|event| event.get_field_type())
+            .take(1).collect();
 
-        let result = core.run(w).unwrap();
+        let result = core.run(work).unwrap();
         assert_that(&result).is_equal_to(vec![scheduler::Event_Type::HEARTBEAT]);
     }
 }
