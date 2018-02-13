@@ -286,8 +286,8 @@ impl Client {
 
                 Ok(Self {
                     framework_id: framework_id.get_value().into(),
-                    stream_id: stream_id,
-                    events: events,
+                    stream_id,
+                    events,
                 })
             } else {
                 Err(format_err!(
