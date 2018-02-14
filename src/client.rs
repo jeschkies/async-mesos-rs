@@ -299,7 +299,40 @@ impl Client {
         operation
     }
 
-    /// Builds a Hyper Request object for given URI and Mesos scheduler call.
+    /// Construct task info.
+    ///
+    /// # Argument
+    ///
+    /// * `task_id` - The id of the launched task.
+    /// * `agent_id` - The agent where the task is lauched.
+    /// * `resources` - The resources to use.
+    /// * `executor` - The execution of the task.
+    pub fn task_info(
+        task_id: mesos::TaskID,
+        agent_id: mesos::AgentID,
+        resources: Vec<mesos::Resource>,
+        executor: mesos::ExecutorInfo,
+    ) -> mesos::TaskInfo {
+        let mut task_info = mesos::TaskInfo::new();
+        task_info.set_task_id(task_id);
+        task_info.set_agent_id(agent_id);
+        task_info.set_resources(RepeatedField::from_vec(resources));
+        task_info.set_executor(executor);
+        task_info
+    }
+
+    /// Construct an executor for a shell command.
+    pub fn executor_shell(command: String) -> mesos::ExecutorInfo {
+        let mut executor = mesos::ExecutorInfo::new();
+        let mut command_info = mesos::CommandInfo::new();
+
+        command_info.set_shell(true);
+        command_info.set_value(command);
+        executor.set_command(command_info);
+        executor
+    }
+
+    /// Construct a Hyper Request object for given URI and Mesos scheduler call.
     pub fn request_for(uri: hyper::Uri, call: scheduler::Call) -> hyper::Request {
         let mut request = hyper::Request::new(hyper::Method::Post, uri);
         request.headers_mut().set(hyper::header::Accept(vec![
@@ -315,7 +348,7 @@ impl Client {
         request
     }
 
-    /// Builds a new Mesos client from subcribe event, remaining Mesos events and Mesos streamd id.
+    /// Construct a new Mesos client from subcribe event, remaining Mesos events and Mesos streamd id.
     fn new(
         maybe_event: Option<scheduler::Event>,
         events: Events,
