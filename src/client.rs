@@ -12,6 +12,7 @@ use hyper;
 use mesos;
 use mime;
 use protobuf::core::{parse_from_bytes, Message};
+use protobuf::repeated::RepeatedField;
 use scheduler;
 use tokio_core::reactor::Handle;
 
@@ -256,6 +257,46 @@ impl Client {
         call.set_subscribe(subscribe);
         call.set_field_type(scheduler::Call_Type::SUBSCRIBE);
         call
+    }
+
+    /// Construct Accept call.
+    ///
+    /// # Arguments
+    ///
+    ///  * `framework_id` - Id of this registered client.
+    ///  * `offer_ids` - Vector over ids of offers that are accepted.
+    ///  * `operations` - The operations to perform on offers.
+    pub fn accept(
+        framework_id: String,
+        offer_ids: Vec<mesos::OfferID>,
+        operations: Vec<mesos::Offer_Operation>,
+    ) -> scheduler::Call {
+        let mut call = scheduler::Call::new();
+        let mut accept = scheduler::Call_Accept::new();
+        accept.set_offer_ids(RepeatedField::from_vec(offer_ids));
+        accept.set_operations(RepeatedField::from_vec(operations));
+
+        let mut id = mesos::FrameworkID::new();
+        id.set_value(framework_id);
+        call.set_framework_id(id);
+        call.set_accept(accept);
+        call.set_field_type(scheduler::Call_Type::ACCEPT);
+        call
+    }
+
+    /// Construct offer launch operation.
+    ///
+    /// # Argument
+    ///
+    /// * `task_infos` - Description of the tasks to launch.
+    pub fn launch_operation(task_infos: Vec<mesos::TaskInfo>) -> mesos::Offer_Operation {
+        let mut operation = mesos::Offer_Operation::new();
+        let mut launch = mesos::Offer_Operation_Launch::new();
+        launch.set_task_infos(RepeatedField::from_vec(task_infos));
+
+        operation.set_launch(launch);
+        operation.set_field_type(mesos::Offer_Operation_Type::LAUNCH);
+        operation
     }
 
     /// Builds a Hyper Request object for given URI and Mesos scheduler call.

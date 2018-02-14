@@ -81,7 +81,9 @@ mod integration {
             .into_stream()
             .map(|client| {
                 // TODO: We should capture a client session or something similar.
-                state = Some(State { framework_id: client.framework_id.clone() });
+                state = Some(State {
+                    framework_id: client.framework_id.clone(),
+                });
                 client.events
             })
             .flatten()
