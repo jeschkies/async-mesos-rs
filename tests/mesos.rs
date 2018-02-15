@@ -1,4 +1,6 @@
 extern crate async_mesos;
+#[macro_use]
+extern crate failure;
 extern crate futures;
 extern crate hyper;
 #[macro_use]
@@ -12,8 +14,8 @@ extern crate tokio_core;
 #[cfg(test)]
 mod integration {
 
-    use futures::Future;
-    use futures::Stream;
+    use failure;
+    use futures::{stream, Future, Stream};
     use hyper::Uri;
     use async_mesos::client::{Client, Events};
     use async_mesos::mesos;
@@ -53,10 +55,6 @@ mod integration {
         assert_that(&result).is_equal_to(vec![scheduler::Event_Type::HEARTBEAT]);
     }
 
-    struct State {
-        framework_id: String,
-    }
-
     #[test]
     fn task_launch() {
         simple_logger::init().unwrap();
@@ -75,25 +73,17 @@ mod integration {
             .unwrap();
         let future_client = Client::connect(&handle, uri, framework_info);
 
-        let mut state = None;
-
         // Process events and start and stop a simple task.
         let work = future_client
             .into_stream()
-            .map(move |client| {
-                // TODO: We should capture a client session or something similar.
-                let new_state = Some(State {
-                    framework_id: client.framework_id.clone(),
-                });
-                std::mem::replace(&mut state, new_state);
-                client.events
+            .map(|client| {
+                let ids = stream::repeat::<_, failure::Error>(client.framework_id.clone());
+                client.events.zip(ids)
             })
             .flatten()
-            .for_each(move |mut event| match event.get_field_type() {
+            .for_each(|(mut event, framework_id)| match event.get_field_type() {
                 scheduler::Event_Type::OFFERS => {
                     info!("Received offer.");
-
-                    let framework_id = state.unwrap().framework_id.clone();
 
                     // Create task for offer.
                     let mut offer = event.take_offers().take_offers()[0].clone();
