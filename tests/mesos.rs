@@ -20,6 +20,7 @@ mod integration {
     use async_mesos::scheduler;
     use simple_logger;
     use spectral::prelude::*;
+    use std;
     use tokio_core::reactor::Core;
 
     #[test]
@@ -79,18 +80,32 @@ mod integration {
         // Process events and start and stop a simple task.
         let work = future_client
             .into_stream()
-            .map(|client| {
+            .map(move |client| {
                 // TODO: We should capture a client session or something similar.
-                state = Some(State {
+                let new_state = Some(State {
                     framework_id: client.framework_id.clone(),
                 });
+                std::mem::replace(&mut state, new_state);
                 client.events
             })
             .flatten()
-            .for_each(|event| match event.get_field_type() {
+            .for_each(move |mut event| match event.get_field_type() {
                 scheduler::Event_Type::OFFERS => {
                     info!("Received offer.");
-                    // Client::accept(state.framework_id, ...) -> Future
+
+                    let framework_id = state.unwrap().framework_id.clone();
+
+                    // Create task for offer.
+                    let mut offer = event.take_offers().take_offers()[0].clone();
+                    let offer_id = offer.take_id();
+                    let agent_id = offer.take_agent_id();
+
+                    let task_id = mesos::TaskID::new();
+                    let resources = offer.get_resources().to_vec(); // Use all resources.
+                    let executor = Client::executor_shell(String::from("sleep 100000"));
+                    let task_info = Client::task_info(task_id, agent_id, resources, executor);
+                    let operation = Client::launch_operation(vec![task_info]);
+                    let call = Client::accept(framework_id, vec![offer_id], vec![operation]);
                     Ok(())
                 }
                 other => {
