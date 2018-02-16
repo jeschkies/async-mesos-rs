@@ -356,6 +356,17 @@ impl Client {
         resource
     }
 
+    pub fn resource_mem(mem: f64) -> mesos::Resource {
+        let mut resource = mesos::Resource::new();
+        resource.set_name(String::from("mem"));
+        resource.set_field_type(mesos::Value_Type::SCALAR);
+
+        let mut scalar = mesos::Value_Scalar::new();
+        scalar.set_value(mem);
+        resource.set_scalar(scalar);
+        resource
+    }
+
     /// Construct a Hyper Request object for given URI and Mesos scheduler call.
     pub fn request_for(uri: hyper::Uri, call: scheduler::Call) -> hyper::Request {
         let mut request = hyper::Request::new(hyper::Method::Post, uri);
@@ -542,9 +553,14 @@ mod tests {
             .that(&task_id.is_initialized())
             .is_true();
 
-        let resource = Client::resource_cpu(0.1);
+        let resource_cpu = Client::resource_cpu(0.1);
         asserting(&"CPU resource is initialized")
-            .that(&resource.is_initialized())
+            .that(&resource_cpu.is_initialized())
+            .is_true();
+
+        let resource_mem = Client::resource_mem(32.0);
+        asserting(&"Memory resource is initialized")
+            .that(&resource_mem.is_initialized())
             .is_true();
 
         let executor =
@@ -557,7 +573,7 @@ mod tests {
             String::from("my_task"),
             task_id,
             agent_id,
-            vec![resource],
+            vec![resource_cpu, resource_mem],
             executor,
         );
         asserting(&"Task info is initialized")
