@@ -15,7 +15,8 @@ extern crate tokio_core;
 mod integration {
 
     use failure;
-    use futures::{stream, Future, Stream};
+    use futures::{future, stream, Future, Stream};
+    use hyper;
     use hyper::Uri;
     use async_mesos::client::{Client, Events};
     use async_mesos::mesos;
@@ -81,28 +82,53 @@ mod integration {
                 client.events.zip(ids)
             })
             .flatten()
-            .for_each(|(mut event, framework_id)| match event.get_field_type() {
-                scheduler::Event_Type::OFFERS => {
-                    info!("Received offer.");
+            .for_each(
+                |(mut event, framework_id)| -> Box<Future<Item = _, Error = failure::Error>> {
+                    match event.get_field_type() {
+                        scheduler::Event_Type::OFFERS => {
+                            info!("Received offer.");
 
-                    // Create task for offer.
-                    let mut offer = event.take_offers().take_offers()[0].clone();
-                    let offer_id = offer.take_id();
-                    let agent_id = offer.take_agent_id();
+                            // Create task for offer.
+                            let mut offer = event.take_offers().take_offers()[0].clone();
+                            let offer_id = offer.take_id();
+                            let agent_id = offer.take_agent_id();
 
-                    let task_id = mesos::TaskID::new();
-                    let resources = offer.get_resources().to_vec(); // Use all resources.
-                    let executor = Client::executor_shell(String::from("sleep 100000"));
-                    let task_info = Client::task_info(task_id, agent_id, resources, executor);
-                    let operation = Client::launch_operation(vec![task_info]);
-                    let call = Client::accept(framework_id, vec![offer_id], vec![operation]);
-                    Ok(())
-                }
-                other => {
-                    debug!("Ignore event {:?}", other);
-                    Ok(())
-                }
-            });
+                            let task_id = mesos::TaskID::new();
+                            let resources = offer.get_resources().to_vec(); // Use all resources.
+                            let executor = Client::executor_shell(
+                                String::from("my_executor"),
+                                String::from("sleep 100000"),
+                            );
+                            let task_info = Client::task_info(
+                                String::from("sleep_task"),
+                                task_id,
+                                agent_id,
+                                resources,
+                                executor,
+                            );
+                            let operation = Client::launch_operation(vec![task_info]);
+                            let call =
+                                Client::accept(framework_id, vec![offer_id], vec![operation]);
+
+                            // Make call
+                            let uri = "http://localhost:5050/api/v1/scheduler"
+                                .parse::<Uri>()
+                                .unwrap();
+                            let request = Client::request_for(uri, call);
+                            let http_client = hyper::Client::new(&handle);
+                            let s = http_client
+                                .request(request)
+                                .map_err(failure::Error::from)
+                                .map(|_response| ());
+                            Box::new(s)
+                        }
+                        other => {
+                            debug!("Ignore event {:?}", other);
+                            Box::new(future::result(Ok(())))
+                        }
+                    }
+                },
+            );
 
         core.run(work).unwrap();
     }

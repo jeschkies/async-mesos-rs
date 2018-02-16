@@ -273,8 +273,13 @@ impl Client {
     ) -> scheduler::Call {
         let mut call = scheduler::Call::new();
         let mut accept = scheduler::Call_Accept::new();
+
+        let mut filters = mesos::Filters::new();
+        filters.set_refuse_seconds(5.0);
+
         accept.set_offer_ids(RepeatedField::from_vec(offer_ids));
         accept.set_operations(RepeatedField::from_vec(operations));
+        accept.set_filters(filters);
 
         let mut id = mesos::FrameworkID::new();
         id.set_value(framework_id);
@@ -303,17 +308,20 @@ impl Client {
     ///
     /// # Argument
     ///
+    /// * `name` - The name of the launched task.
     /// * `task_id` - The id of the launched task.
     /// * `agent_id` - The agent where the task is lauched.
     /// * `resources` - The resources to use.
     /// * `executor` - The execution of the task.
     pub fn task_info(
+        name: String,
         task_id: mesos::TaskID,
         agent_id: mesos::AgentID,
         resources: Vec<mesos::Resource>,
         executor: mesos::ExecutorInfo,
     ) -> mesos::TaskInfo {
         let mut task_info = mesos::TaskInfo::new();
+        task_info.set_name(name);
         task_info.set_task_id(task_id);
         task_info.set_agent_id(agent_id);
         task_info.set_resources(RepeatedField::from_vec(resources));
@@ -322,14 +330,30 @@ impl Client {
     }
 
     /// Construct an executor for a shell command.
-    pub fn executor_shell(command: String) -> mesos::ExecutorInfo {
+    pub fn executor_shell(executor_id: String, command: String) -> mesos::ExecutorInfo {
         let mut executor = mesos::ExecutorInfo::new();
-        let mut command_info = mesos::CommandInfo::new();
 
+        let mut id = mesos::ExecutorID::new();
+        id.set_value(executor_id);
+
+        let mut command_info = mesos::CommandInfo::new();
         command_info.set_shell(true);
         command_info.set_value(command);
+
+        executor.set_executor_id(id);
         executor.set_command(command_info);
         executor
+    }
+
+    pub fn resource_cpu(cpus: f64) -> mesos::Resource {
+        let mut resource = mesos::Resource::new();
+        resource.set_name(String::from("cpus"));
+        resource.set_field_type(mesos::Value_Type::SCALAR);
+
+        let mut scalar = mesos::Value_Scalar::new();
+        scalar.set_value(cpus);
+        resource.set_scalar(scalar);
+        resource
     }
 
     /// Construct a Hyper Request object for given URI and Mesos scheduler call.
@@ -382,6 +406,8 @@ mod tests {
     use client;
     use client::{Client, Decoder, Events};
     use hyper;
+    use mesos;
+    use protobuf::Message;
     use scheduler;
     use spectral::prelude::*;
 
@@ -492,5 +518,65 @@ mod tests {
         let result = Client::new(Some(event), events, String::from("some stream id"));
 
         assert_that(&result).is_err();
+    }
+
+    #[test]
+    fn accept_call() {
+        let framework_id = String::from("my_framework");
+
+        let mut offer_id = mesos::OfferID::new();
+        offer_id.set_value(String::from("some_offer"));
+        asserting(&"Offer id is initialized")
+            .that(&offer_id.is_initialized())
+            .is_true();
+
+        let mut agent_id = mesos::AgentID::new();
+        agent_id.set_value(String::from("an_agent"));
+        asserting(&"Agent id is initialized")
+            .that(&agent_id.is_initialized())
+            .is_true();
+
+        let mut task_id = mesos::TaskID::new();
+        task_id.set_value(String::from("my_task"));
+        asserting(&"Task id is initialized")
+            .that(&task_id.is_initialized())
+            .is_true();
+
+        let resource = Client::resource_cpu(0.1);
+        asserting(&"CPU resource is initialized")
+            .that(&resource.is_initialized())
+            .is_true();
+
+        let executor =
+            Client::executor_shell(String::from("my_executor"), String::from("sleep 100000"));
+        asserting(&"Executor is initialized")
+            .that(&executor.is_initialized())
+            .is_true();
+
+        let task_info = Client::task_info(
+            String::from("my_task"),
+            task_id,
+            agent_id,
+            vec![resource],
+            executor,
+        );
+        asserting(&"Task info is initialized")
+            .that(&task_info.is_initialized())
+            .is_true();
+
+        let operation = Client::launch_operation(vec![task_info]);
+        asserting(&"Operation is initialized")
+            .that(&operation.is_initialized())
+            .is_true();
+
+        let call = Client::accept(framework_id, vec![offer_id], vec![operation]);
+        asserting(&"Accept call is initialized")
+            .that(&call.is_initialized())
+            .is_true();
+
+        let uri = "http://localhost:5050/api/v1/scheduler"
+            .parse::<hyper::Uri>()
+            .unwrap();
+        Client::request_for(uri, call);
     }
 }
