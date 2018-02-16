@@ -93,7 +93,9 @@ mod integration {
                             let offer_id = offer.take_id();
                             let agent_id = offer.take_agent_id();
 
-                            let task_id = mesos::TaskID::new();
+                            let mut task_id = mesos::TaskID::new();
+                            task_id.set_value(String::from("my_task"));
+
                             let resources = offer.get_resources().to_vec(); // Use all resources.
                             let executor = Client::executor_shell(
                                 String::from("my_executor"),
@@ -118,8 +120,18 @@ mod integration {
                             let http_client = hyper::Client::new(&handle);
                             let s = http_client
                                 .request(request)
-                                .map_err(failure::Error::from)
-                                .map(|_response| ());
+                                .map_err(|error| {
+                                    error!("Accept call failed");
+                                    failure::Error::from(error)
+                                })
+                                .map(|res| {
+                                    debug!("Mesos accept offer response status: {}", res.status());
+                                    res.body().for_each(|chunk|{
+                                        debug!("{}", String::from_utf8_lossy(&chunk));
+                                        Ok(())
+                                    });
+                                    ()
+                                });
                             Box::new(s)
                         }
                         other => {
