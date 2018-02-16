@@ -96,9 +96,12 @@ mod integration {
                             let mut task_id = mesos::TaskID::new();
                             task_id.set_value(String::from("my_task"));
 
-                            let resources = offer.get_resources().to_vec(); // Use all resources.
+                            let resource_cpu = Client::resource_cpu(0.1);
+                            let resource_mem = Client::resource_mem(32.0);
+                            let resources = vec![resource_cpu, resource_mem];
+
                             let executor = Client::executor_shell(
-                                String::from("my_executor"),
+                                String::from("default"),
                                 String::from("sleep 100000"),
                             );
                             let task_info = Client::task_info(
@@ -124,13 +127,16 @@ mod integration {
                                     error!("Accept call failed");
                                     failure::Error::from(error)
                                 })
-                                .map(|res| {
+                                .and_then(|res| {
                                     debug!("Mesos accept offer response status: {}", res.status());
-                                    res.body().for_each(|chunk|{
-                                        debug!("{}", String::from_utf8_lossy(&chunk));
-                                        Ok(())
-                                    });
-                                    ()
+                                    res.body().collect()
+                                        .map_err(failure::Error::from)
+                                        .map(|chunks: Vec<hyper::Chunk>|{
+                                            for chunk in chunks {
+                                                debug!("{}", String::from_utf8_lossy(&chunk));
+                                            }
+                                        ()
+                                    })
                                 });
                             Box::new(s)
                         }
