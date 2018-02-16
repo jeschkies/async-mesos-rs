@@ -35,7 +35,7 @@ mod integration {
 
         // Mesos message
         let mut framework_info = mesos::FrameworkInfo::new();
-        framework_info.set_user(String::from("foo"));
+        framework_info.set_user(String::from("nobody"));
         framework_info.set_name(String::from("Example FOO Framework"));
 
         // Create client
@@ -71,7 +71,7 @@ mod integration {
 
         // Mesos message
         let mut framework_info = mesos::FrameworkInfo::new();
-        framework_info.set_user(String::from("foo"));
+        framework_info.set_user(String::from("nobody"));
         framework_info.set_name(String::from("Example FOO Framework"));
 
         // Create client
@@ -125,7 +125,7 @@ mod integration {
                             let uri = "http://localhost:5050/api/v1/scheduler"
                                 .parse::<Uri>()
                                 .unwrap();
-                            let request = Client::request_for(uri, call);
+                            let request = Client::request_for2(uri, state.stream_id, call);
                             let http_client = hyper::Client::new(&handle);
                             let s = http_client
                                 .request(request)

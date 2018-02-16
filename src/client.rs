@@ -383,6 +383,22 @@ impl Client {
         request
     }
 
+    pub fn request_for2(uri: hyper::Uri, stream_id: String, call: scheduler::Call) -> hyper::Request {
+        let mut request = hyper::Request::new(hyper::Method::Post, uri);
+        request.headers_mut().set(hyper::header::Accept(vec![
+            hyper::header::qitem(PROTOBUF_MEDIA_TYPE.clone()),
+        ]));
+        request
+            .headers_mut()
+            .set(hyper::header::ContentType(PROTOBUF_MEDIA_TYPE.clone()));
+        request.headers_mut().set(MesosStreamIdHeader(stream_id));
+
+        // TODO: Handle error
+        let body = call.write_to_bytes().unwrap();
+        request.set_body(body);
+        request
+    }
+
     /// Construct a new Mesos client from subcribe event, remaining Mesos events and Mesos streamd id.
     fn new(
         maybe_event: Option<scheduler::Event>,
