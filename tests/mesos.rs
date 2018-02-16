@@ -56,6 +56,12 @@ mod integration {
         assert_that(&result).is_equal_to(vec![scheduler::Event_Type::HEARTBEAT]);
     }
 
+    #[derive(Clone, Debug)]
+    struct State {
+        pub framework_id: String,
+        pub stream_id: String,
+    }
+
     #[test]
     fn task_launch() {
         simple_logger::init().unwrap();
@@ -78,12 +84,12 @@ mod integration {
         let work = future_client
             .into_stream()
             .map(|client| {
-                let ids = stream::repeat::<_, failure::Error>(client.framework_id.clone());
-                client.events.zip(ids)
+                let state = stream::repeat::<_, failure::Error>(State { framework_id: client.framework_id.clone(), stream_id: client.stream_id.clone()});
+                client.events.zip(state)
             })
             .flatten()
             .for_each(
-                |(mut event, framework_id)| -> Box<Future<Item = _, Error = failure::Error>> {
+                |(mut event, state)| -> Box<Future<Item = _, Error = failure::Error>> {
                     match event.get_field_type() {
                         scheduler::Event_Type::OFFERS => {
                             info!("Received offer.");
@@ -113,7 +119,7 @@ mod integration {
                             );
                             let operation = Client::launch_operation(vec![task_info]);
                             let call =
-                                Client::accept(framework_id, vec![offer_id], vec![operation]);
+                                Client::accept(state.framework_id, vec![offer_id], vec![operation]);
 
                             // Make call
                             let uri = "http://localhost:5050/api/v1/scheduler"

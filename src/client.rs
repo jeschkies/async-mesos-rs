@@ -196,7 +196,7 @@ impl Stream for Events {
 
 pub struct Client {
     pub framework_id: String,
-    stream_id: String,
+    pub stream_id: String,
     pub events: Events,
 }
 
