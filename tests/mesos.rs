@@ -85,7 +85,7 @@ mod integration {
         let handle = core.handle();
 
         // Mesos message
-        let user = get_user_by_uid(get_current_uid()).unwrap();
+        let user = get_user_by_uid(get_current_uid()).expect("No system user found.");
         let mut framework_info = mesos::FrameworkInfo::new();
         framework_info.set_user(String::from(user.name()));
         framework_info.set_name(String::from("Example FOO Framework"));
@@ -93,7 +93,7 @@ mod integration {
         // Create client
         let uri = "http://localhost:5050/api/v1/scheduler"
             .parse::<Uri>()
-            .unwrap();
+            .expect("Could not parse Uri.");
         let future_client = Client::connect(&handle, uri, framework_info);
 
         // Process events and start and stop a simple task.
