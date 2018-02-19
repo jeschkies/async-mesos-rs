@@ -145,7 +145,7 @@ mod integration {
                             let uri = "http://localhost:5050/api/v1/scheduler"
                                 .parse::<Uri>()
                                 .unwrap();
-                            let request = Client::request_for2(uri, state.stream_id, call);
+                            let request = Client::request_for(uri, call, Some(state.stream_id));
                             let http_client = hyper::Client::new(&handle);
                             let s = http_client
                                 .request(request)
@@ -178,7 +178,7 @@ mod integration {
                             let uri = "http://localhost:5050/api/v1/scheduler"
                                 .parse::<Uri>()
                                 .unwrap();
-                            let request = Client::request_for2(uri, state.stream_id, call);
+                            let request = Client::request_for(uri, call, Some(state.stream_id));
                             let http_client = hyper::Client::new(&handle);
                             let s = http_client
                                 .request(request)

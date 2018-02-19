@@ -223,7 +223,7 @@ impl Client {
     ) -> Box<Future<Item = Self, Error = failure::Error>> {
         // Mesos subscribe call
         let call = Self::subscribe(framework_info);
-        let request = Self::request_for(uri, call);
+        let request = Self::request_for(uri, call, None);
 
         // Call Mesos
         let http_client = hyper::Client::configure().keep_alive(false).build(&handle);
@@ -377,25 +377,10 @@ impl Client {
     }
 
     /// Construct a Hyper Request object for given URI and Mesos scheduler call.
-    pub fn request_for(uri: hyper::Uri, call: scheduler::Call) -> hyper::Request {
-        let mut request = hyper::Request::new(hyper::Method::Post, uri);
-        request.headers_mut().set(hyper::header::Accept(vec![
-            hyper::header::qitem(PROTOBUF_MEDIA_TYPE.clone()),
-        ]));
-        request
-            .headers_mut()
-            .set(hyper::header::ContentType(PROTOBUF_MEDIA_TYPE.clone()));
-
-        // TODO: Handle error
-        let body = call.write_to_bytes().unwrap();
-        request.set_body(body);
-        request
-    }
-
-    pub fn request_for2(
+    pub fn request_for(
         uri: hyper::Uri,
-        stream_id: String,
         call: scheduler::Call,
+        maybe_stream_id: Option<String>,
     ) -> hyper::Request {
         let mut request = hyper::Request::new(hyper::Method::Post, uri);
         request.headers_mut().set(hyper::header::Accept(vec![
@@ -404,7 +389,9 @@ impl Client {
         request
             .headers_mut()
             .set(hyper::header::ContentType(PROTOBUF_MEDIA_TYPE.clone()));
-        request.headers_mut().set(MesosStreamIdHeader(stream_id));
+        if let Some(stream_id) = maybe_stream_id {
+            request.headers_mut().set(MesosStreamIdHeader(stream_id));
+        }
 
         // TODO: Handle error
         let body = call.write_to_bytes().unwrap();
@@ -622,6 +609,6 @@ mod tests {
         let uri = "http://localhost:5050/api/v1/scheduler"
             .parse::<hyper::Uri>()
             .unwrap();
-        Client::request_for(uri, call);
+        Client::request_for(uri, call, None);
     }
 }
