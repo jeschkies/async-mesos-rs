@@ -226,7 +226,9 @@ impl Client {
         let request = Self::request_for(uri, call);
 
         // Call Mesos
-        let http_client = hyper::Client::new(&handle);
+        let http_client = hyper::Client::configure()
+            .keep_alive(false)
+            .build(&handle);
         let s = http_client
             .request(request)
             .map_err(failure::Error::from)
@@ -256,6 +258,15 @@ impl Client {
         subscribe.set_framework_info(framework_info);
         call.set_subscribe(subscribe);
         call.set_field_type(scheduler::Call_Type::SUBSCRIBE);
+        call
+    }
+
+    pub fn teardown(framework_id: String) -> scheduler::Call {
+        let mut call = scheduler::Call::new();
+        let mut id = mesos::FrameworkID::new();
+        id.set_value(framework_id);
+        call.set_framework_id(id);
+        call.set_field_type(scheduler::Call_Type::TEARDOWN);
         call
     }
 

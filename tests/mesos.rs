@@ -98,6 +98,7 @@ mod integration {
                             info!("Received offer.");
 
                             // Create task for offer.
+                            // TODO: Launch task only once!
                             let mut offer = event.take_offers().take_offers()[0].clone();
                             let offer_id = offer.take_id();
                             let agent_id = offer.take_agent_id();
@@ -156,7 +157,34 @@ mod integration {
                             let task_state = status.get_state();
                             debug!("Task {} is {:?}: {}", task_id.get_value(), task_state, status.get_message());
 
-                            Box::new(future::result(Ok(())))
+                            // TODO: Stop connection.
+                            let call =
+                                Client::teardown(state.framework_id);
+
+                            // Make call
+                            let uri = "http://localhost:5050/api/v1/scheduler"
+                                .parse::<Uri>()
+                                .unwrap();
+                            let request = Client::request_for2(uri, state.stream_id, call);
+                            let http_client = hyper::Client::new(&handle);
+                            let s = http_client
+                                .request(request)
+                                .map_err(|error| {
+                                    error!("Teardown call failed");
+                                    failure::Error::from(error)
+                                })
+                                .and_then(|res| {
+                                    debug!("Mesos teardown response status: {}", res.status());
+                                    res.body().collect()
+                                        .map_err(failure::Error::from)
+                                        .map(|chunks: Vec<hyper::Chunk>|{
+                                            for chunk in chunks {
+                                                debug!("{}", String::from_utf8_lossy(&chunk));
+                                            }
+                                        ()
+                                    })
+                                });
+                            Box::new(s)
                         }
                         other => {
                             debug!("Ignore event {:?}", other);
