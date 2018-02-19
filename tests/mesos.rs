@@ -148,6 +148,15 @@ mod integration {
                                     })
                                 });
                             Box::new(s)
+                        },
+                        scheduler::Event_Type::UPDATE => {
+                            info!("Received task update.");
+                            let status = event.get_update().get_status();
+                            let task_id = status.get_task_id();
+                            let task_state = status.get_state();
+                            debug!("Task {} is {:?}: {}", task_id.get_value(), task_state, status.get_message());
+
+                            Box::new(future::result(Ok(())))
                         }
                         other => {
                             debug!("Ignore event {:?}", other);
