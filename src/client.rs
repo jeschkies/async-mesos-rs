@@ -189,7 +189,7 @@ impl Stream for Events {
             let event: scheduler::Event = parse_from_bytes(&record)?;
             Ok(Async::Ready(Some(event)))
         } else {
-            Ok(Async::NotReady)
+            Ok(Async::Ready(None))
         }
     }
 }
