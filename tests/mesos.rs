@@ -36,8 +36,9 @@ mod integration {
         let handle = core.handle();
 
         // Mesos message
+        let user = get_user_by_uid(get_current_uid()).expect("No system user found.");
         let mut framework_info = mesos::FrameworkInfo::new();
-        framework_info.set_user(String::from("nobody"));
+        framework_info.set_user(String::from(user.name()));
         framework_info.set_name(String::from("Example FOO Framework"));
 
         // Create client
