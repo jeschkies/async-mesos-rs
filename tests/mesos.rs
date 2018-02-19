@@ -10,6 +10,7 @@ extern crate protobuf;
 extern crate simple_logger;
 extern crate spectral;
 extern crate tokio_core;
+extern crate users;
 
 #[cfg(test)]
 mod integration {
@@ -25,6 +26,7 @@ mod integration {
     use spectral::prelude::*;
     use std;
     use tokio_core::reactor::Core;
+    use users::{get_user_by_uid, get_current_uid};
 
     #[test]
     fn connect() {
@@ -70,8 +72,9 @@ mod integration {
         let handle = core.handle();
 
         // Mesos message
+        let user = get_user_by_uid(get_current_uid()).unwrap();
         let mut framework_info = mesos::FrameworkInfo::new();
-        framework_info.set_user(String::from("nobody"));
+        framework_info.set_user(String::from(user.name()));
         framework_info.set_name(String::from("Example FOO Framework"));
 
         // Create client
