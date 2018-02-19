@@ -30,7 +30,7 @@ mod integration {
 
     #[test]
     fn connect() {
-        simple_logger::init().unwrap();
+        simple_logger::init();
 
         let mut core = Core::new().expect("Could not create Core.");
         let handle = core.handle();
@@ -80,7 +80,7 @@ mod integration {
 
     #[test]
     fn task_launch() {
-        simple_logger::init().unwrap();
+        simple_logger::init();
 
         let mut core = Core::new().expect("Could not create Core.");
         let handle = core.handle();
