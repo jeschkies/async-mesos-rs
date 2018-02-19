@@ -32,7 +32,7 @@ mod integration {
     fn connect() {
         simple_logger::init().unwrap();
 
-        let mut core = Core::new().unwrap();
+        let mut core = Core::new().expect("Could not create Core.");
         let handle = core.handle();
 
         // Mesos message
@@ -44,7 +44,7 @@ mod integration {
         // Create client
         let uri = "http://localhost:5050/api/v1/scheduler"
             .parse::<Uri>()
-            .unwrap();
+            .expect("Could not parse Uri.");
         let client = Client::connect(&handle, uri, framework_info);
 
         let work = client
@@ -82,7 +82,7 @@ mod integration {
     fn task_launch() {
         simple_logger::init().unwrap();
 
-        let mut core = Core::new().unwrap();
+        let mut core = Core::new().expect("Could not create Core.");
         let handle = core.handle();
 
         // Mesos message
