@@ -226,9 +226,7 @@ impl Client {
         let request = Self::request_for(uri, call);
 
         // Call Mesos
-        let http_client = hyper::Client::configure()
-            .keep_alive(false)
-            .build(&handle);
+        let http_client = hyper::Client::configure().keep_alive(false).build(&handle);
         let s = http_client
             .request(request)
             .map_err(failure::Error::from)
@@ -394,7 +392,11 @@ impl Client {
         request
     }
 
-    pub fn request_for2(uri: hyper::Uri, stream_id: String, call: scheduler::Call) -> hyper::Request {
+    pub fn request_for2(
+        uri: hyper::Uri,
+        stream_id: String,
+        call: scheduler::Call,
+    ) -> hyper::Request {
         let mut request = hyper::Request::new(hyper::Method::Post, uri);
         request.headers_mut().set(hyper::header::Accept(vec![
             hyper::header::qitem(PROTOBUF_MEDIA_TYPE.clone()),

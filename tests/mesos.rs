@@ -26,7 +26,7 @@ mod integration {
     use spectral::prelude::*;
     use std;
     use tokio_core::reactor::Core;
-    use users::{get_user_by_uid, get_current_uid};
+    use users::{get_current_uid, get_user_by_uid};
 
     #[test]
     fn connect() {
@@ -64,6 +64,19 @@ mod integration {
         pub stream_id: String,
     }
 
+    fn log_response_body(
+        chunks: Result<Vec<hyper::Chunk>, hyper::Error>,
+    ) -> Result<(), failure::Error> {
+        chunks
+            .map_err(failure::Error::from)
+            .map(|chunks: Vec<hyper::Chunk>| {
+                for chunk in chunks {
+                    debug!("{}", String::from_utf8_lossy(&chunk));
+                }
+                ()
+            })
+    }
+
     #[test]
     fn task_launch() {
         simple_logger::init().unwrap();
@@ -87,7 +100,10 @@ mod integration {
         let work = future_client
             .into_stream()
             .map(|client| {
-                let state = stream::repeat::<_, failure::Error>(State { framework_id: client.framework_id.clone(), stream_id: client.stream_id.clone()});
+                let state = stream::repeat::<_, failure::Error>(State {
+                    framework_id: client.framework_id.clone(),
+                    stream_id: client.stream_id.clone(),
+                });
                 client.events.zip(state)
             })
             .flatten()
@@ -139,27 +155,24 @@ mod integration {
                                 })
                                 .and_then(|res| {
                                     debug!("Mesos accept offer response status: {}", res.status());
-                                    res.body().collect()
-                                        .map_err(failure::Error::from)
-                                        .map(|chunks: Vec<hyper::Chunk>|{
-                                            for chunk in chunks {
-                                                debug!("{}", String::from_utf8_lossy(&chunk));
-                                            }
-                                        ()
-                                    })
+                                    res.body().collect().then(log_response_body)
                                 });
                             Box::new(s)
-                        },
+                        }
                         scheduler::Event_Type::UPDATE => {
                             info!("Received task update.");
                             let status = event.get_update().get_status();
                             let task_id = status.get_task_id();
                             let task_state = status.get_state();
-                            debug!("Task {} is {:?}: {}", task_id.get_value(), task_state, status.get_message());
+                            debug!(
+                                "Task {} is {:?}: {}",
+                                task_id.get_value(),
+                                task_state,
+                                status.get_message()
+                            );
 
                             // TODO: Stop connection.
-                            let call =
-                                Client::teardown(state.framework_id);
+                            let call = Client::teardown(state.framework_id);
 
                             // Make call
                             let uri = "http://localhost:5050/api/v1/scheduler"
@@ -175,14 +188,7 @@ mod integration {
                                 })
                                 .and_then(|res| {
                                     debug!("Mesos teardown response status: {}", res.status());
-                                    res.body().collect()
-                                        .map_err(failure::Error::from)
-                                        .map(|chunks: Vec<hyper::Chunk>|{
-                                            for chunk in chunks {
-                                                debug!("{}", String::from_utf8_lossy(&chunk));
-                                            }
-                                        ()
-                                    })
+                                    res.body().collect().then(log_response_body)
                                 });
                             Box::new(s)
                         }
