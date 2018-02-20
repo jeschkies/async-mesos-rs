@@ -7,7 +7,7 @@ use bytes::{Bytes, BytesMut};
 use bytes::buf::BufMut;
 use failure;
 use failure::Error;
-use futures::{future, Async, Future, Poll, Stream};
+use futures::{future, Async, Future, IntoFuture, Poll, Stream};
 use hyper;
 use mesos;
 use mime;
@@ -422,6 +422,65 @@ impl Client {
             }
         } else {
             Err(format_err!("Did not receive Mesos SUBSCRIBED event."))
+        }
+    }
+
+    pub fn update<F, U>(self, f: F) -> ElmUpdate<F, U>
+        where U: IntoFuture<Item = (), Error = failure::Error>,
+              F: FnMut(scheduler::Event, &mut State) -> U
+    {
+        let state = State { framework_id: self.framework_id.clone(), stream_id: self.stream_id.clone() };
+        ElmUpdate::new(state, self.events, f)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct State {
+    pub framework_id: String,
+    pub stream_id: String,
+}
+
+pub struct ElmUpdate<F, U>
+    where U: IntoFuture<Item = (), Error = failure::Error>,
+          F: FnMut(scheduler::Event, &mut State) -> U
+{
+    state: State, // TODO: Make State generic.
+    events: Events,
+    f: F,
+    fut: Option<U::Future>,
+}
+
+impl<F, U> ElmUpdate<F, U>
+    where U: IntoFuture<Item = (), Error = failure::Error>,
+          F: FnMut(scheduler::Event, &mut State) -> U
+{
+
+    fn new(state: State, events: Events, f: F) -> ElmUpdate<F, U>
+    {
+        ElmUpdate { state, events, f, fut: None }
+    }
+}
+
+impl<F, U> Future for ElmUpdate<F, U>
+    where U: IntoFuture<Item = (), Error = failure::Error>,
+          F: FnMut(scheduler::Event, &mut State) -> U
+{
+    type Item = ();
+    type Error = failure::Error;
+
+    fn poll(&mut self) -> Poll<(), Self::Error> {
+        loop {
+            if let Some(mut fut) = self.fut.take() {
+                if fut.poll()?.is_not_ready() {
+                    self.fut = Some(fut);
+                    return Ok(Async::NotReady);
+                }
+            }
+
+            match try_ready!(self.events.poll()) {
+                Some(event) => self.fut = Some((self.f)(event, &mut self.state).into_future()),
+                None => return Ok(Async::Ready(())),
+            }
         }
     }
 }
