@@ -80,6 +80,7 @@ mod integration {
         pub struct State {
             pub framework_id: String,
             pub stream_id: String,
+            pub task_id: Option<mesos::TaskID>,
         }
 
         let mut core = Core::new().expect("Could not create Core.");
@@ -99,8 +100,14 @@ mod integration {
 
         // Process events and start and stop a simple task.
         let work = future_client.and_then(|client| {
-                let state = State { framework_id: client.framework_id.clone(), stream_id: client.stream_id.clone() };
-                client.events.fold(state, |mut state, mut event| -> Box<Future<Item = State, Error = failure::Error>> {
+            let state = State {
+                framework_id: client.framework_id.clone(),
+                stream_id: client.stream_id.clone(),
+                task_id: None,
+            };
+            client.events.fold(
+                state,
+                |mut state, mut event| -> Box<Future<Item = State, Error = failure::Error>> {
                     match event.get_field_type() {
                         scheduler::Event_Type::OFFERS => {
                             info!("Received offer.");
@@ -124,20 +131,25 @@ mod integration {
                             );
                             let task_info = Client::task_info(
                                 String::from("sleep_task"),
-                                task_id,
+                                task_id.clone(),
                                 agent_id,
                                 resources,
                                 executor,
                             );
                             let operation = Client::launch_operation(vec![task_info]);
-                            let call =
-                                Client::accept(state.framework_id.clone(), vec![offer_id], vec![operation]);
+                            let call = Client::accept(
+                                state.framework_id.clone(),
+                                vec![offer_id],
+                                vec![operation],
+                            );
+                            state.task_id = Some(task_id);
 
                             // Make call
                             let uri = "http://localhost:5050/api/v1/scheduler"
                                 .parse::<Uri>()
                                 .unwrap();
-                            let request = Client::request_for(uri, call, Some(state.stream_id.clone()));
+                            let request =
+                                Client::request_for(uri, call, Some(state.stream_id.clone()));
                             let http_client = hyper::Client::new(&handle);
                             let s = http_client
                                 .request(request)
@@ -171,7 +183,8 @@ mod integration {
                             let uri = "http://localhost:5050/api/v1/scheduler"
                                 .parse::<Uri>()
                                 .unwrap();
-                            let request = Client::request_for(uri, call, Some(state.stream_id.clone()));
+                            let request =
+                                Client::request_for(uri, call, Some(state.stream_id.clone()));
                             let http_client = hyper::Client::new(&handle);
                             let s = http_client
                                 .request(request)
@@ -191,8 +204,9 @@ mod integration {
                             Box::new(future::result(Ok(state)))
                         }
                     }
-                })
-            });
+                },
+            )
+        });
 
         core.run(work).unwrap();
     }
