@@ -112,8 +112,13 @@ mod integration {
                         scheduler::Event_Type::OFFERS => {
                             info!("Received offer.");
 
+                            // We already launched a task.
+                            if state.task_id.is_some() {
+                                info!("Ignoring offer because task is already launching.");
+                                return Box::new(future::result(Ok(state)));
+                            }
+
                             // Create task for offer.
-                            // TODO: Launch task only once!
                             let mut offer = event.take_offers().take_offers()[0].clone();
                             let offer_id = offer.take_id();
                             let agent_id = offer.take_agent_id();
