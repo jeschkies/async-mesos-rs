@@ -76,6 +76,12 @@ mod integration {
     fn task_launch() {
         simple_logger::init();
 
+        #[derive(Clone, Debug)]
+        pub struct State {
+            pub framework_id: String,
+            pub stream_id: String,
+        }
+
         let mut core = Core::new().expect("Could not create Core.");
         let handle = core.handle();
 
@@ -93,7 +99,8 @@ mod integration {
 
         // Process events and start and stop a simple task.
         let work = future_client.and_then(|client| {
-                client.update(|mut event, ref mut state| -> Box<Future<Item = _, Error = failure::Error>> {
+                let state = State { framework_id: client.framework_id.clone(), stream_id: client.stream_id.clone() };
+                client.events.fold(state, |mut state, mut event| -> Box<Future<Item = State, Error = failure::Error>> {
                     match event.get_field_type() {
                         scheduler::Event_Type::OFFERS => {
                             info!("Received offer.");
@@ -141,7 +148,8 @@ mod integration {
                                 .and_then(|res| {
                                     debug!("Mesos accept offer response status: {}", res.status());
                                     res.body().collect().then(log_response_body)
-                                });
+                                })
+                                .map(|()| state);
                             Box::new(s)
                         }
                         scheduler::Event_Type::UPDATE => {
@@ -174,12 +182,13 @@ mod integration {
                                 .and_then(|res| {
                                     debug!("Mesos teardown response status: {}", res.status());
                                     res.body().collect().then(log_response_body)
-                                });
+                                })
+                                .map(|()| state);
                             Box::new(s)
                         }
                         other => {
                             debug!("Ignore event {:?}", other);
-                            Box::new(future::result(Ok(())))
+                            Box::new(future::result(Ok(state)))
                         }
                     }
                 })
