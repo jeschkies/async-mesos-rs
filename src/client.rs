@@ -321,37 +321,29 @@ impl Client {
     /// * `task_id` - The id of the launched task.
     /// * `agent_id` - The agent where the task is lauched.
     /// * `resources` - The resources to use.
-    /// * `executor` - The execution of the task.
+    /// * `commdn` - The command of the task to execute.
     pub fn task_info(
         name: String,
         task_id: mesos::TaskID,
         agent_id: mesos::AgentID,
         resources: Vec<mesos::Resource>,
-        executor: mesos::ExecutorInfo,
+        command: mesos::CommandInfo,
     ) -> mesos::TaskInfo {
         let mut task_info = mesos::TaskInfo::new();
         task_info.set_name(name);
         task_info.set_task_id(task_id);
         task_info.set_agent_id(agent_id);
         task_info.set_resources(RepeatedField::from_vec(resources));
-        task_info.set_executor(executor);
+        task_info.set_command(command);
         task_info
     }
 
-    /// Construct an executor for a shell command.
-    pub fn executor_shell(executor_id: String, command: String) -> mesos::ExecutorInfo {
-        let mut executor = mesos::ExecutorInfo::new();
-
-        let mut id = mesos::ExecutorID::new();
-        id.set_value(executor_id);
-
+    /// Construct shell command.
+    pub fn command_shell(command: String) -> mesos::CommandInfo{
         let mut command_info = mesos::CommandInfo::new();
         command_info.set_shell(true);
         command_info.set_value(command);
-
-        executor.set_executor_id(id);
-        executor.set_command(command_info);
-        executor
+        command_info
     }
 
     pub fn resource_cpu(cpus: f64) -> mesos::Resource {
@@ -579,10 +571,9 @@ mod tests {
             .that(&resource_mem.is_initialized())
             .is_true();
 
-        let executor =
-            Client::executor_shell(String::from("my_executor"), String::from("sleep 100000"));
-        asserting(&"Executor is initialized")
-            .that(&executor.is_initialized())
+        let command = Client::command_shell(String::from("sleep 100000"));
+        asserting(&"Command is initialized")
+            .that(&command.is_initialized())
             .is_true();
 
         let task_info = Client::task_info(
@@ -590,7 +581,7 @@ mod tests {
             task_id,
             agent_id,
             vec![resource_cpu, resource_mem],
-            executor,
+            command,
         );
         asserting(&"Task info is initialized")
             .that(&task_info.is_initialized())

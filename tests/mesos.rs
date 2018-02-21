@@ -90,7 +90,8 @@ mod integration {
         let user = get_user_by_uid(get_current_uid()).expect("No system user found.");
         let mut framework_info = mesos::FrameworkInfo::new();
         framework_info.set_user(String::from(user.name()));
-        framework_info.set_name(String::from("Example FOO Framework"));
+        framework_info.set_name(String::from("Example Rust Framework"));
+        framework_info.set_role(String::from("*"));
 
         // Create client
         let uri = "http://localhost:5050/api/v1/scheduler"
@@ -130,16 +131,13 @@ mod integration {
                             let resource_mem = Client::resource_mem(32.0);
                             let resources = vec![resource_cpu, resource_mem];
 
-                            let executor = Client::executor_shell(
-                                String::from("default"),
-                                String::from("sleep 100000"),
-                            );
+                            let command = Client::command_shell(String::from("sleep 100000"));
                             let task_info = Client::task_info(
                                 String::from("sleep_task"),
                                 task_id.clone(),
                                 agent_id,
                                 resources,
-                                executor,
+                                command,
                             );
                             let operation = Client::launch_operation(vec![task_info]);
                             let call = Client::accept(
@@ -181,28 +179,35 @@ mod integration {
                                 status.get_message()
                             );
 
-                            // TODO: Stop connection.
-                            let call = Client::teardown(state.framework_id.clone());
+                            // TODO: Acknowledge task status update.
 
-                            // Make call
-                            let uri = "http://localhost:5050/api/v1/scheduler"
-                                .parse::<Uri>()
-                                .unwrap();
-                            let request =
-                                Client::request_for(uri, call, Some(state.stream_id.clone()));
-                            let http_client = hyper::Client::new(&handle);
-                            let s = http_client
-                                .request(request)
-                                .map_err(|error| {
-                                    error!("Teardown call failed");
-                                    failure::Error::from(error)
-                                })
-                                .and_then(|res| {
-                                    debug!("Mesos teardown response status: {}", res.status());
-                                    res.body().collect().then(log_response_body)
-                                })
-                                .map(|()| state);
-                            Box::new(s)
+                            if task_state == mesos::TaskState::TASK_RUNNING {
+                                // Stop framework.
+                                let call = Client::teardown(state.framework_id.clone());
+
+                                // Make call
+                                let uri = "http://localhost:5050/api/v1/scheduler"
+                                    .parse::<Uri>()
+                                    .unwrap();
+                                let request =
+                                    Client::request_for(uri, call, Some(state.stream_id.clone()));
+                                let http_client = hyper::Client::new(&handle);
+                                let s = http_client
+                                    .request(request)
+                                    .map_err(|error| {
+                                        error!("Teardown call failed");
+                                        failure::Error::from(error)
+                                    })
+                                    .and_then(|res| {
+                                        debug!("Mesos teardown response status: {}", res.status());
+                                        res.body().collect().then(log_response_body)
+                                    })
+                                    .map(|()| state);
+
+                                return Box::new(s);
+                            } else {
+                                Box::new(future::result(Ok(state)))
+                            }
                         }
                         other => {
                             debug!("Ignore event {:?}", other);
