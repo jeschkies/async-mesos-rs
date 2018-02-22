@@ -169,9 +169,9 @@ mod integration {
                         }
                         scheduler::Event_Type::UPDATE => {
                             info!("Received task update.");
-                            let status = event.get_update().get_status();
-                            let task_id = status.get_task_id();
-                            let task_state = status.get_state();
+                            let status = event.take_update().take_status();
+                            let task_id = status.get_task_id().clone();
+                            let task_state = status.get_state().clone();
                             debug!(
                                 "Task {} is {:?}: {}",
                                 task_id.get_value(),
@@ -180,6 +180,30 @@ mod integration {
                             );
 
                             // TODO: Acknowledge task status update.
+                            let ack_call = Client::acknowledge(state.framework_id.clone(), status);
+                            let ack_uri = "http://localhost:5050/api/v1/scheduler"
+                                .parse::<Uri>()
+                                .unwrap();
+                            let ack_request =
+                                    Client::request_for(ack_uri, ack_call, Some(state.stream_id.clone()));
+                            let ack_http_client = hyper::Client::new(&handle);
+                            // Fire and forget acknowledge call.
+                            handle.spawn_fn(move ||{
+                                let s = ack_http_client
+                                    .request(ack_request)
+                                    .map_err(|error| {
+                                        error!("Teardown call failed");
+                                        failure::Error::from(error)
+                                    })
+                                    .and_then(|res| {
+                                        debug!("Mesos teardown response status: {}", res.status());
+                                        res.body().collect().then(log_response_body)
+                                    });
+                                s.map_err(|error|{
+                                    error!("Could not make acknowledge request: {}", error);
+                                    ()
+                                })
+                            });
 
                             if task_state == mesos::TaskState::TASK_RUNNING {
                                 // Stop framework.

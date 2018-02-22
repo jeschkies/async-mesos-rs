@@ -298,6 +298,28 @@ impl Client {
         call
     }
 
+    /// Construct Acknowledge Call
+    ///
+    /// # Arguments
+    ///
+    ///  * `framework_id` - Id of this registered client.
+    /// * `update_status` - The task status sent along with the update event.
+    pub fn acknowledge(framework_id: String, mut update_status: mesos::TaskStatus) -> scheduler::Call {
+        let mut call = scheduler::Call::new();
+        let mut ack = scheduler::Call_Acknowledge::new();
+
+        ack.set_agent_id(update_status.take_agent_id());
+        ack.set_task_id(update_status.take_task_id());
+        ack.set_uuid(update_status.take_uuid());
+
+        let mut id = mesos::FrameworkID::new();
+        id.set_value(framework_id);
+        call.set_framework_id(id);
+        call.set_acknowledge(ack);
+        call.set_field_type(scheduler::Call_Type::ACKNOWLEDGE);
+        call
+    }
+
     /// Construct offer launch operation.
     ///
     /// # Argument
