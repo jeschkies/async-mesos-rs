@@ -179,7 +179,6 @@ mod integration {
                                 status.get_message()
                             );
 
-                            // TODO: Acknowledge task status update.
                             let ack_call = Client::acknowledge(state.framework_id.clone(), status);
                             let ack_uri = "http://localhost:5050/api/v1/scheduler"
                                 .parse::<Uri>()
