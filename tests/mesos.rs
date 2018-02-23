@@ -19,7 +19,7 @@ mod integration {
     use futures::{future, stream, Future, Stream};
     use hyper;
     use hyper::Uri;
-    use async_mesos::client::{Client, Events};
+    use async_mesos::client::{Client, ClientSession, Events};
     use async_mesos::mesos;
     use async_mesos::scheduler;
     use simple_logger;
@@ -76,11 +76,12 @@ mod integration {
     fn task_launch() {
         simple_logger::init();
 
-        #[derive(Clone, Debug)]
+        #[derive(Debug)]
         pub struct State {
             pub framework_id: String,
             pub stream_id: String,
             pub task_id: Option<mesos::TaskID>,
+            pub session: ClientSession,
         }
 
         let mut core = Core::new().expect("Could not create Core.");
@@ -102,9 +103,10 @@ mod integration {
         // Process events and start and stop a simple task.
         let work = future_client.and_then(|client| {
             let state = State {
-                framework_id: client.framework_id.clone(),
-                stream_id: client.stream_id.clone(),
+                framework_id: client.session.framework_id.clone(),
+                stream_id: client.session.stream_id.clone(),
                 task_id: None,
+                session: client.session.clone(),
             };
             client.events.fold(
                 state,
@@ -148,23 +150,7 @@ mod integration {
                             state.task_id = Some(task_id);
 
                             // Make call
-                            let uri = "http://localhost:5050/api/v1/scheduler"
-                                .parse::<Uri>()
-                                .unwrap();
-                            let request =
-                                Client::request_for(uri, call, Some(state.stream_id.clone()));
-                            let http_client = hyper::Client::new(&handle);
-                            let s = http_client
-                                .request(request)
-                                .map_err(|error| {
-                                    error!("Accept call failed");
-                                    failure::Error::from(error)
-                                })
-                                .and_then(|res| {
-                                    debug!("Mesos accept offer response status: {}", res.status());
-                                    res.body().collect().then(log_response_body)
-                                })
-                                .map(|()| state);
+                            let s = Client::call(&handle, &state.session, call).map(|()| state);
                             Box::new(s)
                         }
                         scheduler::Event_Type::UPDATE => {
@@ -180,53 +166,18 @@ mod integration {
                             );
 
                             let ack_call = Client::acknowledge(state.framework_id.clone(), status);
-                            let ack_uri = "http://localhost:5050/api/v1/scheduler"
-                                .parse::<Uri>()
-                                .unwrap();
-                            let ack_request =
-                                    Client::request_for(ack_uri, ack_call, Some(state.stream_id.clone()));
-                            let ack_http_client = hyper::Client::new(&handle);
                             // Fire and forget acknowledge call.
-                            handle.spawn_fn(move ||{
-                                let s = ack_http_client
-                                    .request(ack_request)
-                                    .map_err(|error| {
-                                        error!("Teardown call failed");
-                                        failure::Error::from(error)
-                                    })
-                                    .and_then(|res| {
-                                        debug!("Mesos teardown response status: {}", res.status());
-                                        res.body().collect().then(log_response_body)
-                                    });
-                                s.map_err(|error|{
+                            let s =
+                                Client::call(&handle, &state.session, ack_call).map_err(|error| {
                                     error!("Could not make acknowledge request: {}", error);
                                     ()
-                                })
-                            });
+                                });
+                            handle.spawn(s);
 
                             if task_state == mesos::TaskState::TASK_RUNNING {
                                 // Stop framework.
                                 let call = Client::teardown(state.framework_id.clone());
-
-                                // Make call
-                                let uri = "http://localhost:5050/api/v1/scheduler"
-                                    .parse::<Uri>()
-                                    .unwrap();
-                                let request =
-                                    Client::request_for(uri, call, Some(state.stream_id.clone()));
-                                let http_client = hyper::Client::new(&handle);
-                                let s = http_client
-                                    .request(request)
-                                    .map_err(|error| {
-                                        error!("Teardown call failed");
-                                        failure::Error::from(error)
-                                    })
-                                    .and_then(|res| {
-                                        debug!("Mesos teardown response status: {}", res.status());
-                                        res.body().collect().then(log_response_body)
-                                    })
-                                    .map(|()| state);
-
+                                let s = Client::call(&handle, &state.session, call).map(|()| state);
                                 return Box::new(s);
                             } else {
                                 Box::new(future::result(Ok(state)))
