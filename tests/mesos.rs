@@ -59,19 +59,6 @@ mod integration {
         assert_that(&result).is_equal_to(vec![scheduler::Event_Type::HEARTBEAT]);
     }
 
-    fn log_response_body(
-        chunks: Result<Vec<hyper::Chunk>, hyper::Error>,
-    ) -> Result<(), failure::Error> {
-        chunks
-            .map_err(failure::Error::from)
-            .map(|chunks: Vec<hyper::Chunk>| {
-                for chunk in chunks {
-                    debug!("{}", String::from_utf8_lossy(&chunk));
-                }
-                ()
-            })
-    }
-
     #[test]
     fn task_launch() {
         simple_logger::init();
