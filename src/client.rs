@@ -432,7 +432,6 @@ impl Client {
                 for chunk in chunks {
                     debug!("{}", String::from_utf8_lossy(&chunk));
                 }
-                ()
             })
     }
 
