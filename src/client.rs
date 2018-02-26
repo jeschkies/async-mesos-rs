@@ -194,9 +194,15 @@ impl Stream for Events {
     }
 }
 
-pub struct Client {
+#[derive(Clone, Debug)]
+pub struct ClientSession {
+    pub uri: hyper::Uri,
     pub framework_id: String,
     pub stream_id: String,
+}
+
+pub struct Client {
+    pub session: ClientSession,
     pub events: Events,
 }
 
@@ -205,7 +211,7 @@ impl fmt::Debug for Client {
         write!(
             f,
             "Client {{ framework_id: {}, stream_id: {} }}",
-            self.framework_id, self.stream_id
+            self.session.framework_id, self.session.stream_id
         )
     }
 }
@@ -223,7 +229,7 @@ impl Client {
     ) -> Box<Future<Item = Self, Error = failure::Error>> {
         // Mesos subscribe call
         let call = Self::subscribe(framework_info);
-        let request = Self::request_for(uri, call, None);
+        let request = Self::request_for(uri.clone(), call, None);
 
         // Call Mesos
         let http_client = hyper::Client::configure().keep_alive(false).build(&handle);
@@ -245,7 +251,7 @@ impl Client {
                 events.join(stream_id)
             })
             .and_then(|((subscribed_event, events), stream_id)| {
-                future::result(Self::new(subscribed_event, events, stream_id))
+                future::result(Self::new(subscribed_event, events, stream_id, uri))
             });
         Box::new(s)
     }
@@ -304,7 +310,10 @@ impl Client {
     ///
     ///  * `framework_id` - Id of this registered client.
     /// * `update_status` - The task status sent along with the update event.
-    pub fn acknowledge(framework_id: String, mut update_status: mesos::TaskStatus) -> scheduler::Call {
+    pub fn acknowledge(
+        framework_id: String,
+        mut update_status: mesos::TaskStatus,
+    ) -> scheduler::Call {
         let mut call = scheduler::Call::new();
         let mut ack = scheduler::Call_Acknowledge::new();
 
@@ -361,7 +370,7 @@ impl Client {
     }
 
     /// Construct shell command.
-    pub fn command_shell(command: String) -> mesos::CommandInfo{
+    pub fn command_shell(command: String) -> mesos::CommandInfo {
         let mut command_info = mesos::CommandInfo::new();
         command_info.set_shell(true);
         command_info.set_value(command);
@@ -391,7 +400,8 @@ impl Client {
     }
 
     /// Construct a Hyper Request object for given URI and Mesos scheduler call.
-    pub fn request_for(
+    // TODO: make private
+    fn request_for(
         uri: hyper::Uri,
         call: scheduler::Call,
         maybe_stream_id: Option<String>,
@@ -413,21 +423,60 @@ impl Client {
         request
     }
 
+    fn log_response_body(
+        chunks: Result<Vec<hyper::Chunk>, hyper::Error>,
+    ) -> Result<(), failure::Error> {
+        chunks
+            .map_err(failure::Error::from)
+            .map(|chunks: Vec<hyper::Chunk>| {
+                for chunk in chunks {
+                    debug!("{}", String::from_utf8_lossy(&chunk));
+                }
+            })
+    }
+
+    pub fn call(
+        handle: &Handle,
+        session: &ClientSession,
+        call: scheduler::Call,
+    ) -> Box<Future<Item = (), Error = failure::Error>> {
+        let request =
+            Client::request_for(session.uri.clone(), call, Some(session.stream_id.clone()));
+
+        // TODO: Construct only once.
+        let http_client = hyper::Client::new(&handle);
+        let s = http_client
+            .request(request)
+            .map_err(|error| {
+                error!("Teardown call failed");
+                failure::Error::from(error)
+            })
+            .and_then(|res| {
+                debug!("Mesos teardown response status: {}", res.status());
+                res.body().collect().then(Self::log_response_body)
+            });
+        // TODO: Do not return boxed future.
+        Box::new(s)
+    }
+
     /// Construct a new Mesos client from subcribe event, remaining Mesos events and Mesos streamd id.
     fn new(
         maybe_event: Option<scheduler::Event>,
         events: Events,
         stream_id: String,
+        uri: hyper::Uri,
     ) -> Result<Self, Error> {
         if let Some(event) = maybe_event {
             if event.has_subscribed() {
                 let framework_id = event.get_subscribed().get_framework_id().clone();
 
-                Ok(Self {
+                let session = ClientSession {
+                    uri,
                     framework_id: framework_id.get_value().into(),
                     stream_id,
-                    events,
-                })
+                };
+
+                Ok(Self { session, events })
             } else {
                 Err(format_err!(
                     "Mesos {:?} event was not a SUBSCRIBED event",
@@ -546,7 +595,10 @@ mod tests {
     #[test]
     fn no_subscribe_event() {
         let events = Events::new(hyper::Body::empty());
-        let result = Client::new(None, events, String::from("some stream id"));
+        let uri = "http://localhost:5050/api/v1/scheduler"
+            .parse::<hyper::Uri>()
+            .unwrap();
+        let result = Client::new(None, events, String::from("some stream id"), uri);
 
         assert_that(&result).is_err();
     }
@@ -556,7 +608,10 @@ mod tests {
         let events = Events::new(hyper::Body::empty());
         let mut event = scheduler::Event::new();
         event.set_field_type(scheduler::Event_Type::HEARTBEAT);
-        let result = Client::new(Some(event), events, String::from("some stream id"));
+        let uri = "http://localhost:5050/api/v1/scheduler"
+            .parse::<hyper::Uri>()
+            .unwrap();
+        let result = Client::new(Some(event), events, String::from("some stream id"), uri);
 
         assert_that(&result).is_err();
     }
