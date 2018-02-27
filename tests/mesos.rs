@@ -123,10 +123,7 @@ mod integration {
                                 command,
                             );
                             let operation = state.client.launch_operation(vec![task_info]);
-                            let call = state.client.accept(
-                                vec![offer_id],
-                                vec![operation],
-                            );
+                            let call = state.client.accept(vec![offer_id], vec![operation]);
                             state.task_id = Some(task_id);
 
                             // Make call
@@ -147,11 +144,10 @@ mod integration {
 
                             let ack_call = state.client.acknowledge(status);
                             // Fire and forget acknowledge call.
-                            let s =
-                                state.client.call(&handle, ack_call).map_err(|error| {
-                                    error!("Could not make acknowledge request: {}", error);
-                                    ()
-                                });
+                            let s = state.client.call(&handle, ack_call).map_err(|error| {
+                                error!("Could not make acknowledge request: {}", error);
+                                ()
+                            });
                             handle.spawn(s);
 
                             if task_state == mesos::TaskState::TASK_RUNNING {
