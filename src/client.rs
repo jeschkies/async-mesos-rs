@@ -16,7 +16,7 @@ use protobuf::repeated::RepeatedField;
 use scheduler;
 use tokio_core::reactor::Handle;
 
-use std::{fmt, str};
+use std::str;
 
 #[derive(Fail, Debug)]
 pub enum DecoderError {

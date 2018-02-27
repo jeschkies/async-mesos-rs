@@ -68,6 +68,42 @@ mod integration {
             pub task_id: Option<mesos::TaskID>,
         }
 
+        fn build_accept_call(
+            state: &State,
+            offer_id: mesos::OfferID,
+            task_id: mesos::TaskID,
+            agent_id: mesos::AgentID
+        ) -> Result<scheduler::Call, failure::Error> {
+            let cpu = model::ScalarResourceBuilder::default()
+                .name("cpu")
+                .value(0.1)
+                .build()?;
+
+            let mem = model::ScalarResourceBuilder::default()
+                .name("mem")
+                .value(32.0)
+                .build()?;
+
+            let command = model::ShellCommandBuilder::default()
+                .command("sleep 100000")
+                .build()?;
+
+            let task_info = model::TaskInfoBuilder::default()
+                .name("sleep_task")
+                .task_id(task_id)
+                .agent_id(agent_id)
+                .resource(cpu)
+                .resource(mem)
+                .command(command)
+                .build()?;
+
+            let operation = model::OfferLaunchOperationBuilder::default()
+                .task_info(task_info)
+                .build()?;
+            let call = state.client.accept(vec![offer_id], vec![operation]);
+            Ok(call)
+        }
+
         let mut core = Core::new().expect("Could not create Core.");
         let handle = core.handle();
 
@@ -111,38 +147,15 @@ mod integration {
                             let mut task_id = mesos::TaskID::new();
                             task_id.set_value(String::from("my_task"));
 
-                            let cpu = model::ScalarResourceBuilder::default()
-                                .name("cpu")
-                                .value(0.1)
-                                .build()?;
-
-                            let mem = model::ScalarResourceBuilder::default()
-                                .name("mem")
-                                .value(32.0)
-                                .build()?;
-
-                            let command = model::ShellCommandBuilder::default()
-                                .command("sleep 100000")
-                                .build()?;
-
-                            let task_info = model::TaskInfoBuilder::default()
-                                .name("sleep_task")
-                                .task_id(task_id.clone())
-                                .agent_id(agent_id)
-                                .resource(cpu)
-                                .resource(mem)
-                                .command(command)
-                                .build();
-
-                            let operation = model::OfferLaunchOperationBuilder::default()
-                                .task_info(task_info)
-                                .build()?;
-                            let call = state.client.accept(vec![offer_id], vec![operation]);
-                            state.task_id = Some(task_id);
+                            state.task_id = Some(task_id.clone());
 
                             // Make call
-                            let s = state.client.call(&handle, call).map(|()| state);
-                            Box::new(s)
+                            if let Ok(call) = build_accept_call(&state, offer_id, task_id, agent_id) {
+                                let s = state.client.call(&handle, call).map(|()| state);
+                                Box::new(s)
+                            } else {
+                                Box::new(future::err(format_err!("Could not construct offer accept call")))
+                            }
                         }
                         scheduler::Event_Type::UPDATE => {
                             info!("Received task update.");
