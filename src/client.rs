@@ -7,7 +7,7 @@ use bytes::{Bytes, BytesMut};
 use bytes::buf::BufMut;
 use failure;
 use failure::Error;
-use futures::{future, Async, Future, IntoFuture, Poll, Stream};
+use futures::{future, Async, Future, Poll, Stream};
 use hyper;
 use mesos;
 use mime;
@@ -296,10 +296,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `update_status` - The task status sent along with the update event.
-    pub fn acknowledge(
-        &self,
-        mut update_status: mesos::TaskStatus,
-    ) -> scheduler::Call {
+    pub fn acknowledge(&self, mut update_status: mesos::TaskStatus) -> scheduler::Call {
         let mut call = scheduler::Call::new();
         let mut ack = scheduler::Call_Acknowledge::new();
 
@@ -311,77 +308,6 @@ impl Client {
         call.set_acknowledge(ack);
         call.set_field_type(scheduler::Call_Type::ACKNOWLEDGE);
         call
-    }
-
-    /// Construct offer launch operation.
-    ///
-    /// # Argument
-    ///
-    /// * `task_infos` - Description of the tasks to launch.
-    pub fn launch_operation(&self, task_infos: Vec<mesos::TaskInfo>) -> mesos::Offer_Operation {
-        let mut operation = mesos::Offer_Operation::new();
-        let mut launch = mesos::Offer_Operation_Launch::new();
-        launch.set_task_infos(RepeatedField::from_vec(task_infos));
-
-        operation.set_launch(launch);
-        operation.set_field_type(mesos::Offer_Operation_Type::LAUNCH);
-        operation
-    }
-
-    /// Construct task info.
-    ///
-    /// # Argument
-    ///
-    /// * `name` - The name of the launched task.
-    /// * `task_id` - The id of the launched task.
-    /// * `agent_id` - The agent where the task is lauched.
-    /// * `resources` - The resources to use.
-    /// * `commdn` - The command of the task to execute.
-    pub fn task_info(
-        &self,
-        name: String,
-        task_id: mesos::TaskID,
-        agent_id: mesos::AgentID,
-        resources: Vec<mesos::Resource>,
-        command: mesos::CommandInfo,
-    ) -> mesos::TaskInfo {
-        let mut task_info = mesos::TaskInfo::new();
-        task_info.set_name(name);
-        task_info.set_task_id(task_id);
-        task_info.set_agent_id(agent_id);
-        task_info.set_resources(RepeatedField::from_vec(resources));
-        task_info.set_command(command);
-        task_info
-    }
-
-    /// Construct shell command.
-    pub fn command_shell(&self, command: String) -> mesos::CommandInfo {
-        let mut command_info = mesos::CommandInfo::new();
-        command_info.set_shell(true);
-        command_info.set_value(command);
-        command_info
-    }
-
-    pub fn resource_cpu(&self, cpus: f64) -> mesos::Resource {
-        let mut resource = mesos::Resource::new();
-        resource.set_name(String::from("cpus"));
-        resource.set_field_type(mesos::Value_Type::SCALAR);
-
-        let mut scalar = mesos::Value_Scalar::new();
-        scalar.set_value(cpus);
-        resource.set_scalar(scalar);
-        resource
-    }
-
-    pub fn resource_mem(&self, mem: f64) -> mesos::Resource {
-        let mut resource = mesos::Resource::new();
-        resource.set_name(String::from("mem"));
-        resource.set_field_type(mesos::Value_Type::SCALAR);
-
-        let mut scalar = mesos::Value_Scalar::new();
-        scalar.set_value(mem);
-        resource.set_scalar(scalar);
-        resource
     }
 
     /// Construct a Hyper Request object for given URI and Mesos scheduler call.
@@ -424,8 +350,7 @@ impl Client {
         handle: &Handle,
         call: scheduler::Call,
     ) -> Box<Future<Item = (), Error = failure::Error>> {
-        let request =
-            Client::request_for(self.uri.clone(), call, Some(self.stream_id.clone()));
+        let request = Client::request_for(self.uri.clone(), call, Some(self.stream_id.clone()));
 
         // TODO: Construct only once.
         let http_client = hyper::Client::new(&handle);
@@ -475,9 +400,10 @@ mod tests {
 
     use bytes::{BufMut, Bytes, BytesMut};
     use client;
-    use client::{Client, Decoder, Events};
+    use client::{Client, Decoder};
     use hyper;
     use mesos;
+    use model;
     use protobuf::Message;
     use scheduler;
     use spectral::prelude::*;
@@ -602,56 +528,52 @@ mod tests {
         let uri = "http://localhost:5050/api/v1/scheduler"
             .parse::<hyper::Uri>()
             .expect("Test URI was not parsable.");
-        let client = Client { uri: uri.clone(), framework_id, stream_id };
+        let client = Client {
+            uri: uri.clone(),
+            framework_id,
+            stream_id,
+        };
 
         let mut offer_id = mesos::OfferID::new();
         offer_id.set_value(String::from("some_offer"));
-        asserting(&"Offer id is initialized")
-            .that(&offer_id.is_initialized())
-            .is_true();
 
         let mut agent_id = mesos::AgentID::new();
         agent_id.set_value(String::from("an_agent"));
-        asserting(&"Agent id is initialized")
-            .that(&agent_id.is_initialized())
-            .is_true();
 
         let mut task_id = mesos::TaskID::new();
         task_id.set_value(String::from("my_task"));
-        asserting(&"Task id is initialized")
-            .that(&task_id.is_initialized())
-            .is_true();
 
-        let resource_cpu = client.resource_cpu(0.1);
-        asserting(&"CPU resource is initialized")
-            .that(&resource_cpu.is_initialized())
-            .is_true();
+        let resource_cpu = model::ScalarResourceBuilder::default()
+            .name("cpu")
+            .value(0.1)
+            .build()
+            .expect("CPU resource was not complete");
 
-        let resource_mem = client.resource_mem(32.0);
-        asserting(&"Memory resource is initialized")
-            .that(&resource_mem.is_initialized())
-            .is_true();
+        let resource_mem = model::ScalarResourceBuilder::default()
+            .name("mem")
+            .value(32.0)
+            .build()
+            .expect("Memory resource was not complete");
 
-        let command = client.command_shell(String::from("sleep 100000"));
-        asserting(&"Command is initialized")
-            .that(&command.is_initialized())
-            .is_true();
+        let command = model::ShellCommandBuilder::default()
+            .command("sleep 100000")
+            .build()
+            .expect("Shell command was not complete");
 
-        let task_info = client.task_info(
-            String::from("my_task"),
-            task_id,
-            agent_id,
-            vec![resource_cpu, resource_mem],
-            command,
-        );
-        asserting(&"Task info is initialized")
-            .that(&task_info.is_initialized())
-            .is_true();
+        let task_info = model::TaskInfoBuilder::default()
+            .name("my_task")
+            .task_id(task_id)
+            .agent_id(agent_id)
+            .resource(resource_cpu)
+            .resource(resource_mem)
+            .command(command)
+            .build()
+            .expect("Task info was not complete");
 
-        let operation = client.launch_operation(vec![task_info]);
-        asserting(&"Operation is initialized")
-            .that(&operation.is_initialized())
-            .is_true();
+        let operation = model::OfferLaunchOperationBuilder::default()
+            .task_info(task_info)
+            .build()
+            .expect("Offer operation was not complete");
 
         let call = client.accept(vec![offer_id], vec![operation]);
         asserting(&"Accept call is initialized")

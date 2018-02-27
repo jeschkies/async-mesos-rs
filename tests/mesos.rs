@@ -20,6 +20,7 @@ mod integration {
     use hyper::Uri;
     use async_mesos::client::Client;
     use async_mesos::mesos;
+    use async_mesos::model;
     use async_mesos::scheduler;
     use simple_logger;
     use spectral::prelude::*;
@@ -110,19 +111,32 @@ mod integration {
                             let mut task_id = mesos::TaskID::new();
                             task_id.set_value(String::from("my_task"));
 
-                            let resource_cpu = state.client.resource_cpu(0.1);
-                            let resource_mem = state.client.resource_mem(32.0);
-                            let resources = vec![resource_cpu, resource_mem];
+                            let cpu = model::ScalarResourceBuilder::default()
+                                .name("cpu")
+                                .value(0.1)
+                                .build()?;
 
-                            let command = state.client.command_shell(String::from("sleep 100000"));
-                            let task_info = state.client.task_info(
-                                String::from("sleep_task"),
-                                task_id.clone(),
-                                agent_id,
-                                resources,
-                                command,
-                            );
-                            let operation = state.client.launch_operation(vec![task_info]);
+                            let mem = model::ScalarResourceBuilder::default()
+                                .name("mem")
+                                .value(32.0)
+                                .build()?;
+
+                            let command = model::ShellCommandBuilder::default()
+                                .command("sleep 100000")
+                                .build()?;
+
+                            let task_info = model::TaskInfoBuilder::default()
+                                .name("sleep_task")
+                                .task_id(task_id.clone())
+                                .agent_id(agent_id)
+                                .resource(cpu)
+                                .resource(mem)
+                                .command(command)
+                                .build();
+
+                            let operation = model::OfferLaunchOperationBuilder::default()
+                                .task_info(task_info)
+                                .build()?;
                             let call = state.client.accept(vec![offer_id], vec![operation]);
                             state.task_id = Some(task_id);
 
