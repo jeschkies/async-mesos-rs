@@ -195,25 +195,10 @@ impl Stream for Events {
 }
 
 #[derive(Clone, Debug)]
-pub struct ClientSession {
+pub struct Client {
     pub uri: hyper::Uri,
     pub framework_id: String,
     pub stream_id: String,
-}
-
-pub struct Client {
-    pub session: ClientSession,
-    pub events: Events,
-}
-
-impl fmt::Debug for Client {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "Client {{ framework_id: {}, stream_id: {} }}",
-            self.session.framework_id, self.session.stream_id
-        )
-    }
 }
 
 header! { (MesosStreamIdHeader, "Mesos-Stream-Id") => [String] }
@@ -226,7 +211,7 @@ impl Client {
         handle: &Handle,
         uri: hyper::Uri,
         framework_info: mesos::FrameworkInfo,
-    ) -> Box<Future<Item = Self, Error = failure::Error>> {
+    ) -> Box<Future<Item = (Self, Events), Error = failure::Error>> {
         // Mesos subscribe call
         let call = Self::subscribe(framework_info);
         let request = Self::request_for(uri.clone(), call, None);
@@ -251,7 +236,8 @@ impl Client {
                 events.join(stream_id)
             })
             .and_then(|((subscribed_event, events), stream_id)| {
-                future::result(Self::new(subscribed_event, events, stream_id, uri))
+                let maybe_client = Self::new(subscribed_event, stream_id, uri);
+                future::result(maybe_client.map(|client| (client, events)))
             });
         Box::new(s)
     }
@@ -265,11 +251,15 @@ impl Client {
         call
     }
 
-    pub fn teardown(framework_id: String) -> scheduler::Call {
-        let mut call = scheduler::Call::new();
+    fn mesos_framework_id(&self) -> mesos::FrameworkID {
         let mut id = mesos::FrameworkID::new();
-        id.set_value(framework_id);
-        call.set_framework_id(id);
+        id.set_value(self.framework_id.clone());
+        id
+    }
+
+    pub fn teardown(&self) -> scheduler::Call {
+        let mut call = scheduler::Call::new();
+        call.set_framework_id(self.mesos_framework_id());
         call.set_field_type(scheduler::Call_Type::TEARDOWN);
         call
     }
@@ -278,11 +268,10 @@ impl Client {
     ///
     /// # Arguments
     ///
-    ///  * `framework_id` - Id of this registered client.
     ///  * `offer_ids` - Vector over ids of offers that are accepted.
     ///  * `operations` - The operations to perform on offers.
     pub fn accept(
-        framework_id: String,
+        &self,
         offer_ids: Vec<mesos::OfferID>,
         operations: Vec<mesos::Offer_Operation>,
     ) -> scheduler::Call {
@@ -296,9 +285,7 @@ impl Client {
         accept.set_operations(RepeatedField::from_vec(operations));
         accept.set_filters(filters);
 
-        let mut id = mesos::FrameworkID::new();
-        id.set_value(framework_id);
-        call.set_framework_id(id);
+        call.set_framework_id(self.mesos_framework_id());
         call.set_accept(accept);
         call.set_field_type(scheduler::Call_Type::ACCEPT);
         call
@@ -308,10 +295,9 @@ impl Client {
     ///
     /// # Arguments
     ///
-    ///  * `framework_id` - Id of this registered client.
     /// * `update_status` - The task status sent along with the update event.
     pub fn acknowledge(
-        framework_id: String,
+        &self,
         mut update_status: mesos::TaskStatus,
     ) -> scheduler::Call {
         let mut call = scheduler::Call::new();
@@ -321,9 +307,7 @@ impl Client {
         ack.set_task_id(update_status.take_task_id());
         ack.set_uuid(update_status.take_uuid());
 
-        let mut id = mesos::FrameworkID::new();
-        id.set_value(framework_id);
-        call.set_framework_id(id);
+        call.set_framework_id(self.mesos_framework_id());
         call.set_acknowledge(ack);
         call.set_field_type(scheduler::Call_Type::ACKNOWLEDGE);
         call
@@ -334,7 +318,7 @@ impl Client {
     /// # Argument
     ///
     /// * `task_infos` - Description of the tasks to launch.
-    pub fn launch_operation(task_infos: Vec<mesos::TaskInfo>) -> mesos::Offer_Operation {
+    pub fn launch_operation(&self, task_infos: Vec<mesos::TaskInfo>) -> mesos::Offer_Operation {
         let mut operation = mesos::Offer_Operation::new();
         let mut launch = mesos::Offer_Operation_Launch::new();
         launch.set_task_infos(RepeatedField::from_vec(task_infos));
@@ -354,6 +338,7 @@ impl Client {
     /// * `resources` - The resources to use.
     /// * `commdn` - The command of the task to execute.
     pub fn task_info(
+        &self,
         name: String,
         task_id: mesos::TaskID,
         agent_id: mesos::AgentID,
@@ -370,14 +355,14 @@ impl Client {
     }
 
     /// Construct shell command.
-    pub fn command_shell(command: String) -> mesos::CommandInfo {
+    pub fn command_shell(&self, command: String) -> mesos::CommandInfo {
         let mut command_info = mesos::CommandInfo::new();
         command_info.set_shell(true);
         command_info.set_value(command);
         command_info
     }
 
-    pub fn resource_cpu(cpus: f64) -> mesos::Resource {
+    pub fn resource_cpu(&self, cpus: f64) -> mesos::Resource {
         let mut resource = mesos::Resource::new();
         resource.set_name(String::from("cpus"));
         resource.set_field_type(mesos::Value_Type::SCALAR);
@@ -388,7 +373,7 @@ impl Client {
         resource
     }
 
-    pub fn resource_mem(mem: f64) -> mesos::Resource {
+    pub fn resource_mem(&self, mem: f64) -> mesos::Resource {
         let mut resource = mesos::Resource::new();
         resource.set_name(String::from("mem"));
         resource.set_field_type(mesos::Value_Type::SCALAR);
@@ -400,7 +385,6 @@ impl Client {
     }
 
     /// Construct a Hyper Request object for given URI and Mesos scheduler call.
-    // TODO: make private
     fn request_for(
         uri: hyper::Uri,
         call: scheduler::Call,
@@ -436,12 +420,12 @@ impl Client {
     }
 
     pub fn call(
+        &self,
         handle: &Handle,
-        session: &ClientSession,
         call: scheduler::Call,
     ) -> Box<Future<Item = (), Error = failure::Error>> {
         let request =
-            Client::request_for(session.uri.clone(), call, Some(session.stream_id.clone()));
+            Client::request_for(self.uri.clone(), call, Some(self.stream_id.clone()));
 
         // TODO: Construct only once.
         let http_client = hyper::Client::new(&handle);
@@ -462,7 +446,6 @@ impl Client {
     /// Construct a new Mesos client from subcribe event, remaining Mesos events and Mesos streamd id.
     fn new(
         maybe_event: Option<scheduler::Event>,
-        events: Events,
         stream_id: String,
         uri: hyper::Uri,
     ) -> Result<Self, Error> {
@@ -470,13 +453,11 @@ impl Client {
             if event.has_subscribed() {
                 let framework_id = event.get_subscribed().get_framework_id().clone();
 
-                let session = ClientSession {
+                Ok(Self {
                     uri,
                     framework_id: framework_id.get_value().into(),
                     stream_id,
-                };
-
-                Ok(Self { session, events })
+                })
             } else {
                 Err(format_err!(
                     "Mesos {:?} event was not a SUBSCRIBED event",
@@ -594,24 +575,22 @@ mod tests {
 
     #[test]
     fn no_subscribe_event() {
-        let events = Events::new(hyper::Body::empty());
         let uri = "http://localhost:5050/api/v1/scheduler"
             .parse::<hyper::Uri>()
             .unwrap();
-        let result = Client::new(None, events, String::from("some stream id"), uri);
+        let result = Client::new(None, String::from("some stream id"), uri);
 
         assert_that(&result).is_err();
     }
 
     #[test]
     fn wrong_event() {
-        let events = Events::new(hyper::Body::empty());
         let mut event = scheduler::Event::new();
         event.set_field_type(scheduler::Event_Type::HEARTBEAT);
         let uri = "http://localhost:5050/api/v1/scheduler"
             .parse::<hyper::Uri>()
             .unwrap();
-        let result = Client::new(Some(event), events, String::from("some stream id"), uri);
+        let result = Client::new(Some(event), String::from("some stream id"), uri);
 
         assert_that(&result).is_err();
     }
@@ -619,6 +598,11 @@ mod tests {
     #[test]
     fn accept_call() {
         let framework_id = String::from("my_framework");
+        let stream_id = String::from("teh_stream");
+        let uri = "http://localhost:5050/api/v1/scheduler"
+            .parse::<hyper::Uri>()
+            .expect("Test URI was not parsable.");
+        let client = Client { uri: uri.clone(), framework_id, stream_id };
 
         let mut offer_id = mesos::OfferID::new();
         offer_id.set_value(String::from("some_offer"));
@@ -638,22 +622,22 @@ mod tests {
             .that(&task_id.is_initialized())
             .is_true();
 
-        let resource_cpu = Client::resource_cpu(0.1);
+        let resource_cpu = client.resource_cpu(0.1);
         asserting(&"CPU resource is initialized")
             .that(&resource_cpu.is_initialized())
             .is_true();
 
-        let resource_mem = Client::resource_mem(32.0);
+        let resource_mem = client.resource_mem(32.0);
         asserting(&"Memory resource is initialized")
             .that(&resource_mem.is_initialized())
             .is_true();
 
-        let command = Client::command_shell(String::from("sleep 100000"));
+        let command = client.command_shell(String::from("sleep 100000"));
         asserting(&"Command is initialized")
             .that(&command.is_initialized())
             .is_true();
 
-        let task_info = Client::task_info(
+        let task_info = client.task_info(
             String::from("my_task"),
             task_id,
             agent_id,
@@ -664,19 +648,16 @@ mod tests {
             .that(&task_info.is_initialized())
             .is_true();
 
-        let operation = Client::launch_operation(vec![task_info]);
+        let operation = client.launch_operation(vec![task_info]);
         asserting(&"Operation is initialized")
             .that(&operation.is_initialized())
             .is_true();
 
-        let call = Client::accept(framework_id, vec![offer_id], vec![operation]);
+        let call = client.accept(vec![offer_id], vec![operation]);
         asserting(&"Accept call is initialized")
             .that(&call.is_initialized())
             .is_true();
 
-        let uri = "http://localhost:5050/api/v1/scheduler"
-            .parse::<hyper::Uri>()
-            .unwrap();
         Client::request_for(uri, call, None);
     }
 }

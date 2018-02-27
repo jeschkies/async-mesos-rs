@@ -16,15 +16,13 @@ extern crate users;
 mod integration {
 
     use failure;
-    use futures::{future, stream, Future, Stream};
-    use hyper;
+    use futures::{future, Future, Stream};
     use hyper::Uri;
-    use async_mesos::client::{Client, ClientSession, Events};
+    use async_mesos::client::Client;
     use async_mesos::mesos;
     use async_mesos::scheduler;
     use simple_logger;
     use spectral::prelude::*;
-    use std;
     use tokio_core::reactor::Core;
     use users::{get_current_uid, get_user_by_uid};
 
@@ -49,7 +47,7 @@ mod integration {
 
         let work = client
             .into_stream()
-            .map(|client| client.events)
+            .map(|(_, events)| events)
             .flatten()
             .map(|event| event.get_field_type())
             .take(1)
@@ -65,10 +63,8 @@ mod integration {
 
         #[derive(Debug)]
         pub struct State {
-            pub framework_id: String,
-            pub stream_id: String,
+            pub client: Client,
             pub task_id: Option<mesos::TaskID>,
-            pub session: ClientSession,
         }
 
         let mut core = Core::new().expect("Could not create Core.");
@@ -88,14 +84,12 @@ mod integration {
         let future_client = Client::connect(&handle, uri, framework_info);
 
         // Process events and start and stop a simple task.
-        let work = future_client.and_then(|client| {
+        let work = future_client.and_then(|(client, events)| {
             let state = State {
-                framework_id: client.session.framework_id.clone(),
-                stream_id: client.session.stream_id.clone(),
+                client: client,
                 task_id: None,
-                session: client.session.clone(),
             };
-            client.events.fold(
+            events.fold(
                 state,
                 |mut state, mut event| -> Box<Future<Item = State, Error = failure::Error>> {
                     match event.get_field_type() {
@@ -116,28 +110,27 @@ mod integration {
                             let mut task_id = mesos::TaskID::new();
                             task_id.set_value(String::from("my_task"));
 
-                            let resource_cpu = Client::resource_cpu(0.1);
-                            let resource_mem = Client::resource_mem(32.0);
+                            let resource_cpu = state.client.resource_cpu(0.1);
+                            let resource_mem = state.client.resource_mem(32.0);
                             let resources = vec![resource_cpu, resource_mem];
 
-                            let command = Client::command_shell(String::from("sleep 100000"));
-                            let task_info = Client::task_info(
+                            let command = state.client.command_shell(String::from("sleep 100000"));
+                            let task_info = state.client.task_info(
                                 String::from("sleep_task"),
                                 task_id.clone(),
                                 agent_id,
                                 resources,
                                 command,
                             );
-                            let operation = Client::launch_operation(vec![task_info]);
-                            let call = Client::accept(
-                                state.framework_id.clone(),
+                            let operation = state.client.launch_operation(vec![task_info]);
+                            let call = state.client.accept(
                                 vec![offer_id],
                                 vec![operation],
                             );
                             state.task_id = Some(task_id);
 
                             // Make call
-                            let s = Client::call(&handle, &state.session, call).map(|()| state);
+                            let s = state.client.call(&handle, call).map(|()| state);
                             Box::new(s)
                         }
                         scheduler::Event_Type::UPDATE => {
@@ -152,10 +145,10 @@ mod integration {
                                 status.get_message()
                             );
 
-                            let ack_call = Client::acknowledge(state.framework_id.clone(), status);
+                            let ack_call = state.client.acknowledge(status);
                             // Fire and forget acknowledge call.
                             let s =
-                                Client::call(&handle, &state.session, ack_call).map_err(|error| {
+                                state.client.call(&handle, ack_call).map_err(|error| {
                                     error!("Could not make acknowledge request: {}", error);
                                     ()
                                 });
@@ -163,8 +156,8 @@ mod integration {
 
                             if task_state == mesos::TaskState::TASK_RUNNING {
                                 // Stop framework.
-                                let call = Client::teardown(state.framework_id.clone());
-                                let s = Client::call(&handle, &state.session, call).map(|()| state);
+                                let call = state.client.teardown();
+                                let s = state.client.call(&handle, call).map(|()| state);
                                 return Box::new(s);
                             } else {
                                 Box::new(future::result(Ok(state)))
