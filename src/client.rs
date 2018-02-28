@@ -564,8 +564,7 @@ mod tests {
             .name("my_task")
             .task_id(task_id)
             .agent_id(agent_id)
-            .resource(resource_cpu)
-            .resource(resource_mem)
+            .resources(vec![resource_cpu, resource_mem])
             .command(command)
             .build()
             .expect("Task info was not complete");

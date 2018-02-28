@@ -40,9 +40,7 @@ pub struct TaskInfoBuilder {
 
 impl TaskInfoBuilder {
     pub fn default() -> Self {
-        let mut task_info = mesos::TaskInfo::new();
-        let resources = RepeatedField::new();
-        task_info.set_resources(resources);
+        let task_info = mesos::TaskInfo::new();
 
         TaskInfoBuilder { task_info }
     }
@@ -67,8 +65,8 @@ impl TaskInfoBuilder {
         self
     }
 
-    pub fn resource(mut self, resource: mesos::Resource) -> Self {
-        self.task_info.mut_resources().push(resource);
+    pub fn resources(mut self, resources: Vec<mesos::Resource>) -> Self {
+        self.task_info.set_resources(RepeatedField::from_vec(resources));
         self
     }
 
@@ -205,8 +203,7 @@ mod tests {
             .name("my_task")
             .task_id(task_id)
             .agent_id(agent_id)
-            .resource(resource_cpu)
-            .resource(resource_mem)
+            .resources(vec![resource_cpu, resource_mem])
             .build();
 
         assert_that(&task_info).is_ok();

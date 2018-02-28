@@ -75,7 +75,7 @@ mod integration {
             agent_id: mesos::AgentID
         ) -> Result<scheduler::Call, failure::Error> {
             let cpu = model::ScalarResourceBuilder::default()
-                .name("cpu")
+                .name("cpus")
                 .value(0.1)
                 .build()?;
 
@@ -92,8 +92,7 @@ mod integration {
                 .name("sleep_task")
                 .task_id(task_id)
                 .agent_id(agent_id)
-                .resource(cpu)
-                .resource(mem)
+                .resources(vec![cpu, mem])
                 .command(command)
                 .build()?;
 
