@@ -14,13 +14,15 @@
 //!
 //! ## Getting Started
 //!
-//! ```rust
+//! ```no_run
 //! # extern crate async_mesos;
+//! # extern crate futures;
 //! # extern crate hyper;
 //! # extern crate tokio_core;
 //! # fn main() {
 //! use async_mesos::mesos;
 //! use async_mesos::client::Client;
+//! use futures::{future, Future, Stream};
 //! use hyper::Uri;
 //! use tokio_core::reactor::Core;
 //!
@@ -37,7 +39,18 @@
 //! let uri = "http://localhost:5050/api/v1/scheduler"
 //!     .parse::<Uri>()
 //!     .expect("Could not parse Uri.");
-//! let client = Client::connect(&handle, uri, framework_info);
+//! let future_client = Client::connect(&handle, uri, framework_info);
+//!
+//! // Process first HEARTBEAT event
+//! let work = future_client
+//!     .into_stream()
+//!     .map(|(_, events)| events)
+//!     .flatten()
+//!     .map(|event| event.get_field_type())
+//!     .take(1)
+//!     .collect();
+//!
+//! core.run(work).unwrap();
 //! # }
 //! ```
 
