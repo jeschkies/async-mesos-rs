@@ -112,6 +112,16 @@ lazy_static! {
 }
 
 impl Client {
+
+    /// Connect to Mesos and subscribe to V1 scheduler events.
+    ///
+    /// # Argument
+    ///
+    /// * `handle` - A handle to a Tokio loop.
+    /// * `uri` - The uri to the Mesos V1 scheduler API,
+    ///   e.g `http://localhost:5050/api/v1/scheduler`
+    /// * `framework_info` - Information of the framework that registers with
+    ///   Mesos.
     pub fn connect(
         handle: &Handle,
         uri: hyper::Uri,
@@ -147,7 +157,12 @@ impl Client {
         Box::new(s)
     }
 
-    pub fn subscribe(framework_info: mesos::FrameworkInfo) -> scheduler::Call {
+    /// Construct subscribe call.
+    ///
+    /// # Argument
+    ///
+    /// * `framework_info` - The info for the Mesos framework that subscribes.
+    fn subscribe(framework_info: mesos::FrameworkInfo) -> scheduler::Call {
         let mut call = scheduler::Call::new();
         let mut subscribe = scheduler::Call_Subscribe::new();
         subscribe.set_framework_info(framework_info);
@@ -162,6 +177,9 @@ impl Client {
         id
     }
 
+    /// Construct teardown call.
+    ///
+    /// The teardown call deregisters framework from Mesos.
     pub fn teardown(&self) -> scheduler::Call {
         let mut call = scheduler::Call::new();
         call.set_framework_id(self.mesos_framework_id());
@@ -250,6 +268,12 @@ impl Client {
             })
     }
 
+    /// Make a call to Mesos.
+    ///
+    /// # Argument
+    ///
+    /// * `handle` - A handle to a Tokio loop.
+    /// * `call` - The content of the call, e.g. Accept for an offer.
     pub fn call(
         &self,
         handle: &Handle,
