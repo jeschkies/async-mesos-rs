@@ -16,4 +16,5 @@ extern crate tokio_core;
 
 pub mod client;
 pub mod mesos;
+pub mod model;
 pub mod scheduler;
