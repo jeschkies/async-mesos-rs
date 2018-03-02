@@ -71,6 +71,7 @@ extern crate spectral; // TODO: Move to test dependencies.
 extern crate tokio_core;
 
 pub mod client;
+mod decoder;
 pub mod mesos;
 pub mod model;
 pub mod scheduler;
