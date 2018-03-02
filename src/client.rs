@@ -17,7 +17,7 @@ use tokio_core::reactor::Handle;
 
 use std::str;
 
-pub struct RecordIoConnection {
+struct RecordIoConnection {
     pub buf: BytesMut,
     pub body: hyper::Body,
     decoder: RecordIoDecoder,
@@ -99,6 +99,10 @@ impl Stream for Events {
     }
 }
 
+/// Mesos client connection.
+///
+/// This holds all connection information for a Mesos framework. The framework
+/// id should be persisted to recover after a failover.
 #[derive(Clone, Debug)]
 pub struct Client {
     pub uri: hyper::Uri,
@@ -171,6 +175,7 @@ impl Client {
         call
     }
 
+    /// Get a clonse of the framework id.
     fn mesos_framework_id(&self) -> mesos::FrameworkID {
         let mut id = mesos::FrameworkID::new();
         id.set_value(self.framework_id.clone());
