@@ -1,10 +1,84 @@
-/// Model builders for Mesos Protobufs.
+//! Model builders for Mesos Protobufs.
+//!
+//! These stateful builders ease the creation of protobuf models. The `build` method runs a
+//! minimal verification of the model and resturns `Result<mesos::Model, failure::Error>`.
+//!
+//! # Example
+//!
+//! This example is taken from `tests/mesos.rs` in the main repository.
+//!
+//! ```rust
+//! # extern crate async_mesos;
+//! # extern crate failure;
+//! # extern crate hyper;
+//!
+//! # use failure::Error;
+//! # use async_mesos::scheduler;
+//!
+//! # fn build_accept_call() -> Result<scheduler::Call, Error> {
+//!
+//! # use async_mesos::client::Client;
+//! # use async_mesos::mesos;
+//! # use hyper::Uri;
+//! use async_mesos::model;
+//!
+//! # let uri = "http://localhost:5050/api/v1/scheduler"
+//! #    .parse::<Uri>()
+//! #    .unwrap();
+//! # let framework_id = String::from("my_framework");
+//! # let stream_id = String::from("my_stream");
+//! # let client = Client { uri, framework_id, stream_id };
+//! # let mut task_id = mesos::TaskID::new();
+//! # let mut agent_id =  mesos::AgentID::new();
+//! # let mut offer_id =  mesos::OfferID::new();
+//!
+//! let cpu = model::ScalarResourceBuilder::default()
+//!     .name("cpus")
+//!     .value(0.1)
+//!     .build()?;
+//!
+//! let mem = model::ScalarResourceBuilder::default()
+//!     .name("mem")
+//!     .value(32.0)
+//!     .build()?;
+//!
+//! let command = model::ShellCommandBuilder::default()
+//!     .command("sleep 100000")
+//!     .build()?;
+//!
+//! let task_info = model::TaskInfoBuilder::default()
+//!     .name("sleep_task")
+//!     .task_id(task_id)
+//!     .agent_id(agent_id)
+//!     .resources(vec![cpu, mem])
+//!     .command(command)
+//!     .build()?;
+//!
+//! let operation = model::OfferLaunchOperationBuilder::default()
+//!     .task_info(task_info)
+//!     .build()?;
+//! let call = client.accept(vec![offer_id], vec![operation]);
+//! Ok(call)
+//! }
+//! ```
 
 use failure;
 use mesos;
 use protobuf::core::Message;
 use protobuf::repeated::RepeatedField;
 
+/// Builder for Mesos offer operation.
+///
+/// # Example
+///
+/// ```no_run
+/// # use async_mesos::model;
+/// # let task_info = model::TaskInfoBuilder::default().build().unwrap();
+///
+/// model::OfferLaunchOperationBuilder::default()
+///     .task_info(task_info)
+///     .build();
+/// ```
 pub struct OfferLaunchOperationBuilder {
     operation: mesos::Offer_Operation,
 }
