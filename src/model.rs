@@ -11,17 +11,17 @@
 //! # extern crate async_mesos;
 //! # extern crate failure;
 //! # extern crate hyper;
-//!
+//! #
 //! # use failure::Error;
 //! # use async_mesos::scheduler;
-//!
+//! #
 //! # fn build_accept_call() -> Result<scheduler::Call, Error> {
-//!
+//! #
 //! # use async_mesos::client::Client;
 //! # use async_mesos::mesos;
 //! # use hyper::Uri;
 //! use async_mesos::model;
-//!
+//! #
 //! # let uri = "http://localhost:5050/api/v1/scheduler"
 //! #    .parse::<Uri>()
 //! #    .unwrap();
@@ -59,7 +59,7 @@
 //!     .build()?;
 //! let call = client.accept(vec![offer_id], vec![operation]);
 //! Ok(call)
-//! }
+//! # }
 //! ```
 
 use failure;
@@ -74,7 +74,7 @@ use protobuf::repeated::RepeatedField;
 /// ```no_run
 /// # use async_mesos::model;
 /// # let task_info = model::TaskInfoBuilder::default().build().unwrap();
-///
+/// #
 /// model::OfferLaunchOperationBuilder::default()
 ///     .task_info(task_info)
 ///     .build();
