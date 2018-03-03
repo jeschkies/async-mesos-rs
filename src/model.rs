@@ -12,10 +12,9 @@
 //! # extern crate failure;
 //! # extern crate hyper;
 //! #
-//! # use failure::Error;
 //! # use async_mesos::scheduler;
 //! #
-//! # fn build_accept_call() -> Result<scheduler::Call, Error> {
+//! # fn build_accept_call() -> Result<scheduler::Call, failure::Error> {
 //! #
 //! # use async_mesos::client::Client;
 //! # use async_mesos::mesos;
@@ -29,8 +28,11 @@
 //! # let stream_id = String::from("my_stream");
 //! # let client = Client { uri, framework_id, stream_id };
 //! # let mut task_id = mesos::TaskID::new();
+//! # task_id.set_value(String::from("my_task"));
 //! # let mut agent_id =  mesos::AgentID::new();
+//! # agent_id.set_value(String::from("my_agent"));
 //! # let mut offer_id =  mesos::OfferID::new();
+//! # offer_id.set_value(String::from("some_offer"));
 //!
 //! let cpu = model::ScalarResourceBuilder::default()
 //!     .name("cpus")
@@ -59,6 +61,9 @@
 //!     .build()?;
 //! let call = client.accept(vec![offer_id], vec![operation]);
 //! Ok(call)
+//! # }
+//! # fn main() {
+//! # build_accept_call().unwrap();
 //! # }
 //! ```
 
