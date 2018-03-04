@@ -1,6 +1,5 @@
 extern crate bytes;
 extern crate futures;
-extern crate spectral;
 extern crate tokio_core;
 
 use bytes::{BufMut, Bytes, BytesMut};
