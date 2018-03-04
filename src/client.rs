@@ -140,7 +140,7 @@ impl Stream for Events {
 ///     .parse::<Uri>()
 ///     .expect("Could not parse Uri.");
 /// let future_client = Client::connect(&handle, uri, framework_info);
-/// let (client: Client, events: Events) = core.run(future_client).unwrap();
+/// let (client, events) = core.run(future_client).unwrap();
 /// # }
 /// ```
 #[derive(Clone, Debug)]

@@ -2,6 +2,8 @@
 name = "async-mesos"
 version = "0.1.0"
 authors = ["Karsten Jeschkies <jeskar@web.de>"]
+license = "Apache-2.0"
+travis-ci = { repository = "jeschkies/async-mesos-rs", branch = "master" }
 
 [dependencies]
 bytes = "0.4"
