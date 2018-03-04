@@ -338,7 +338,7 @@ mod tests {
     use model;
     use protobuf::Message;
     use scheduler;
-    use spectral::prelude::*;
+    use tests::spectral::prelude::*;
 
 
     #[test]

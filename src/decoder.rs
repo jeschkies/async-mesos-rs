@@ -96,7 +96,7 @@ mod tests {
 
     use bytes::{BufMut, Bytes, BytesMut};
     use decoder::{Decoder, RecordIoDecoder, RecordIoDecoderState};
-    use spectral::prelude::*;
+    use tests::spectral::prelude::*;
 
     #[test]
     fn trim_whitespaces() {

@@ -67,7 +67,6 @@ extern crate lazy_static;
 extern crate log;
 extern crate mime;
 extern crate protobuf;
-extern crate spectral; // TODO: Move to test dependencies.
 extern crate tokio_core;
 
 pub mod client;
@@ -75,3 +74,8 @@ pub mod model;
 mod decoder;
 pub mod mesos;
 pub mod scheduler;
+
+#[cfg(test)]
+mod tests {
+    pub extern crate spectral;
+}
