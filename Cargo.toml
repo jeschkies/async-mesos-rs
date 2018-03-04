@@ -1,5 +1,6 @@
 [package]
 name = "async-mesos"
+description = "An asynchronous client for Mesos HTTP scheduler API."
 version = "0.1.0"
 authors = ["Karsten Jeschkies <jeskar@web.de>"]
 license = "Apache-2.0"
