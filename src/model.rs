@@ -223,7 +223,7 @@ mod tests {
     use model::{OfferLaunchOperationBuilder, ScalarResourceBuilder, ShellCommandBuilder,
                 TaskInfoBuilder};
     use protobuf::core::Message;
-    use spectral::prelude::*;
+    use tests::spectral::prelude::*;
 
     #[test]
     fn scalar_resource() {
