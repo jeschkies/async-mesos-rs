@@ -1,3 +1,5 @@
+//! Mesos client and event stream implementation.
+
 extern crate bytes;
 extern crate futures;
 extern crate tokio_core;
@@ -72,12 +74,20 @@ impl Stream for RecordIoConnection {
     }
 }
 
+/// A stream over [Mesos events](http://mesos.apache.org/documentation/latest/scheduler-http-api/#events).
+///
+/// `Events` also implements `futures::Stream` with item type `scheduler::Event`. It can be used to
+/// process Mesos events.
 pub struct Events {
     records: RecordIoConnection,
 }
 
 impl Events {
-    pub fn new(body: hyper::Body) -> Self {
+    /// Constructs a new event stream from the response body of the scheduler API.
+    ///
+    /// Note, the event stream should be created by `Client::connect` which returns a client and an
+    /// event stream.
+    pub(self) fn new(body: hyper::Body) -> Self {
         Self {
             records: RecordIoConnection::new(body),
         }
